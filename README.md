@@ -30,6 +30,24 @@ CLAUDE.md                 — context file for AI-assisted implementation
 
 Implementation is tracked as [GitHub issues](https://github.com/stuartizon/blotato-assessment/issues), not as a markdown file — see `CLAUDE.md` for the ways-of-working this repo follows.
 
+## Setup
+
+Requires Node 18+ and Docker (for local Postgres).
+
+```bash
+npm install
+cp .env.example .env       # defaults already match docker-compose.yml
+docker compose up -d       # starts Postgres on localhost:5432
+npm run migrate            # creates published_posts, comments, reply_jobs
+npm run start:dev          # http://localhost:3000/health
+```
+
+Other scripts: `npm test`, `npm run lint`, `npm run format`, `npm run build`.
+Migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate)
+(plain SQL up/down in `migrations/`, matching `docs/schema.md` directly — no
+ORM). A `pre-push` git hook (via Husky) runs lint, format check, and the
+test suite before every push.
+
 ## Design at a glance
 
 - **Postgres + JSONB**, not a separate document store — relational integrity
