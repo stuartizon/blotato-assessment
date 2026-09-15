@@ -177,6 +177,24 @@ rejected.
   into a common `PlatformApiError` shape (with a `retryable` flag and an
   error `kind`), and the worker acts on that classification. See
   `docs/error-shape.md`.
+- **Pinned to `pg-boss@^10`, not the latest major (`12.x`).** From `pg-boss`
+  v12 onward the package ships ESM-only (`"type": "module"`, no CommonJS
+  entry point), while this project compiles to CommonJS
+  (`tsconfig.json`'s `module: "commonjs"`, no `esModuleInterop`) and CI runs
+  on Node 20. `pg-boss@11` requires Node ≥22 (newer than CI's Node 20);
+  `pg-boss@10` supports Node ≥20 and is still CommonJS, so it's the newest
+  version that doesn't force either a Node bump or a project-wide ESM
+  migration — neither of which this feature warrants.
+- **The `reply_jobs` unique index on `idempotency_key` is the source of
+  truth for deduplication, not an application-level check-then-insert.**
+  The create-reply endpoint does check for an existing job by key before
+  inserting (to skip unnecessary work on the common repeat-request path),
+  but the actual insert uses `INSERT ... ON CONFLICT (idempotency_key) DO
+  NOTHING`, falling back to a lookup if the insert is skipped. A plain
+  check-then-insert would have a race window: two concurrent requests with
+  the same key could both pass the check and both insert, each going on to
+  post to the platform — exactly the duplicate-reply failure mode the key
+  exists to prevent.
 
 ## Testing strategy
 

@@ -32,7 +32,7 @@ Implementation is tracked as [GitHub issues](https://github.com/stuartizon/blota
 
 ## Setup
 
-Requires Node 18+ and Docker (for local Postgres).
+Requires Node 20+ (pg-boss's minimum) and Docker (for local Postgres).
 
 ```bash
 npm install
@@ -45,8 +45,10 @@ npm run start:dev          # http://localhost:3000/health
 Other scripts: `npm test`, `npm run lint`, `npm run format`, `npm run build`.
 Migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate)
 (plain SQL up/down in `migrations/`, matching `docs/schema.md` directly — no
-ORM). A `pre-push` git hook (via Husky) runs lint, format check, and the
-test suite before every push.
+ORM). pg-boss manages its own `pgboss` schema in the same database
+automatically on startup — that's separate from `migrations/` and isn't
+something `npm run migrate` touches. A `pre-push` git hook (via Husky) runs
+lint, format check, and the test suite before every push.
 
 ## Design at a glance
 

@@ -173,6 +173,35 @@ describe('CommentsRepository', () => {
     });
   });
 
+  describe('findById', () => {
+    it('returns null when no comment exists with that id', async () => {
+      const result = await repository.findById(
+        '00000000-0000-0000-0000-000000000000',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('returns the comment mapped to camelCase fields, including its platform', async () => {
+      const postId = await insertPost();
+      await repository.upsertMany('twitter', postId, [
+        comment({ externalCommentId: 'c1' }),
+      ]);
+      const row = await pool.query(
+        `SELECT id FROM comments WHERE external_comment_id = 'c1'`,
+      );
+      const commentId = row.rows[0].id as string;
+
+      const result = await repository.findById(commentId);
+
+      expect(result).toEqual({
+        id: commentId,
+        platform: 'twitter',
+        externalCommentId: 'c1',
+      });
+    });
+  });
+
   describe('getCommentTree', () => {
     it('returns an empty array for a post with no comments', async () => {
       const postId = await insertPost();

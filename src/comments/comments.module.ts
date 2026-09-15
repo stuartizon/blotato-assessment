@@ -44,6 +44,6 @@ function buildAdapterMap(): AdapterMap {
         ),
     },
   ],
-  exports: [CommentAdapterRegistry],
+  exports: [CommentAdapterRegistry, CommentsRepository],
 })
 export class CommentsModule {}

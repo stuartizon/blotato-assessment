@@ -62,6 +62,9 @@ existing job rather than creating a duplicate (see `ASSUMPTIONS.md`).
 }
 ```
 
+Returns `404` if no comment exists with that id (same convention as
+`GET /posts/:postId/comments`).
+
 ## `GET /reply-jobs/:jobId`
 
 Poll for job status. Once `status` is `sent`, includes the resulting
