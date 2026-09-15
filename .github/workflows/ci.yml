@@ -47,8 +47,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Unit tests
+        run: npm run test:unit
+
       - name: Run migrations
         run: npm run migrate
 
-      - name: Test
-        run: npm test
+      - name: Integration tests
+        run: npm run test:integration

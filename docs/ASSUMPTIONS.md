@@ -180,20 +180,26 @@ rejected.
 
 ## Testing strategy
 
-- **Repository-layer tests run against a real Postgres instance (via
-  `docker-compose`), not a mocked driver.** Given "plain node-postgres, no
-  ORM" as the data-access approach, the value being tested — the upsert's
-  `ON CONFLICT` edit-detection, the recursive-CTE tree fetch — lives in
-  the SQL itself; mocking the `pg` client would only prove the mock was
-  called correctly, not that the query does the right thing.
-- **Jest runs with `maxWorkers: 1`.** Repository specs share one database
-  and truncate their tables in `beforeEach`; Jest's default of running
-  test files in separate parallel worker processes let two suites'
-  truncate/insert sequences interleave against the same tables, causing
-  intermittent unique-constraint failures. Serializing test files avoids
-  the race without adding per-suite locking or a separate database per
-  worker — an acceptable trade at this suite's size (well under a second
-  either way).
+- **Repository-layer tests are integration tests, run separately from
+  unit tests.** They exercise a real Postgres instance (via
+  `docker-compose`), not a mocked driver — given "plain node-postgres, no
+  ORM" as the data-access approach, the value being tested (the upsert's
+  `ON CONFLICT` edit-detection, the recursive-CTE tree fetch) lives in the
+  SQL itself, and mocking the `pg` client would only prove the mock was
+  called correctly, not that the query does the right thing. They're
+  named `*.integration.spec.ts` and run via a separate Jest config
+  (`jest.integration.config.js`, `npm run test:integration`), so `npm run
+  test:unit` (and the default `jest`/`test:watch`) stays fast and runnable
+  without Docker at all. `npm test` (used by the `pre-push` hook and CI)
+  runs both.
+- **The integration config pins `maxWorkers: 1`.** Those specs share one
+  database and truncate their tables in `beforeEach`; Jest's default of
+  running test files in separate parallel worker processes let two
+  suites' truncate/insert sequences interleave against the same tables,
+  causing intermittent unique-constraint failures. Serializing just this
+  config avoids the race without slowing down the (much larger, in
+  future) unit suite, and without adding per-suite locking or a separate
+  database per worker.
 
 ## Framework choice
 
