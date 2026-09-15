@@ -25,9 +25,10 @@ docs/
   adapter-interface.md   — PlatformCommentAdapter contract + CanonicalComment type
   error-shape.md         — PlatformApiError and retry classification
   api-endpoints.md       — REST API surface
-  ISSUES.md              — proposed GitHub issues / user stories for implementation
 CLAUDE.md                 — context file for AI-assisted implementation
 ```
+
+Implementation is tracked as [GitHub issues](https://github.com/stuartizon/blotato-assessment/issues), not as a markdown file — see `CLAUDE.md` for the ways-of-working this repo follows.
 
 ## Design at a glance
 
