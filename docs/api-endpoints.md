@@ -6,11 +6,20 @@ listing, `includeDeleted`, a computed reply-status field).
 
 ## `GET /posts/:postId/comments`
 
+`:postId` is the internal `published_posts.id` (UUID) — the id the wider
+product's post-management system already has from when the post was
+published, not the platform's own id. A single path param can't
+disambiguate a platform-native id (`published_posts` is only unique per
+`(platform, external_post_id)`), so this is the only encoding that works
+without an extra query param.
+
 Returns the comment tree for a post. If `published_posts.last_synced_at`
-is `NULL` or older than the configured staleness threshold, triggers a
-fetch via the relevant `PlatformCommentAdapter`, upserts the results, and
-updates `last_synced_at` before responding. Otherwise serves directly from
-the database.
+is `NULL` or older than the configured staleness threshold
+(`STALENESS_THRESHOLD_MS` env var, default 15 minutes — see
+`docs/ASSUMPTIONS.md`), triggers a fetch via the relevant
+`PlatformCommentAdapter`, upserts the results, and updates
+`last_synced_at` before responding. Otherwise serves directly from the
+database. Returns `404` if no post exists with that id.
 
 **Response** — comments nested by `parent_comment_id`; a comment's own
 replies are returned as a `replies` array (arbitrary depth). Whether a

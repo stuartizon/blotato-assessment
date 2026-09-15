@@ -25,6 +25,24 @@ rejected.
   as a bounded-staleness cache, not a guaranteed-complete mirror.
   `published_posts.last_synced_at` drives whether a read triggers a fresh
   fetch from the platform before serving from the database.
+- **Staleness threshold: 15 minutes, via `STALENESS_THRESHOLD_MS`.**
+  `docs/api-endpoints.md` said reads trigger a sync when
+  `last_synced_at` is past "the configured staleness threshold" without
+  ever specifying the value or how it's configured. Resolved as an env
+  var (read once at module init, not re-read per request) defaulting to
+  15 minutes — a reasonable-for-now balance between serving fresh
+  comment data and not hitting the adapter on every request, made an env
+  var mainly for local tuning during development rather than because
+  per-environment overrides are expected any time soon.
+- **`:postId` on `GET /posts/:postId/comments` is the internal
+  `published_posts.id` (UUID), not the platform's own post id.** Not
+  stated explicitly in `docs/api-endpoints.md`, but forced by the schema:
+  `published_posts` is only unique per `(platform, external_post_id)`, so
+  a platform-native id alone (with no platform in the path or as a query
+  param) can't uniquely identify a post. Since the wider product's
+  post-management system (out of scope here — see "No `GET /posts`
+  listing endpoint" above) already has this internal id from when the
+  post was published, callers are expected to have it on hand.
 - **Platform is always authoritative for writes.** A reply is posted to the
   platform first; it's only persisted locally (as a `comments` row) once
   the platform confirms. The system never treats a locally-written reply as
