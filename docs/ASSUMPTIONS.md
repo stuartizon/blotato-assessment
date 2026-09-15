@@ -178,6 +178,23 @@ rejected.
   error `kind`), and the worker acts on that classification. See
   `docs/error-shape.md`.
 
+## Testing strategy
+
+- **Repository-layer tests run against a real Postgres instance (via
+  `docker-compose`), not a mocked driver.** Given "plain node-postgres, no
+  ORM" as the data-access approach, the value being tested — the upsert's
+  `ON CONFLICT` edit-detection, the recursive-CTE tree fetch — lives in
+  the SQL itself; mocking the `pg` client would only prove the mock was
+  called correctly, not that the query does the right thing.
+- **Jest runs with `maxWorkers: 1`.** Repository specs share one database
+  and truncate their tables in `beforeEach`; Jest's default of running
+  test files in separate parallel worker processes let two suites'
+  truncate/insert sequences interleave against the same tables, causing
+  intermittent unique-constraint failures. Serializing test files avoids
+  the race without adding per-suite locking or a separate database per
+  worker — an acceptable trade at this suite's size (well under a second
+  either way).
+
 ## Framework choice
 
 - **NestJS, not a hand-rolled Express/Fastify setup.** NestJS's

@@ -11,4 +11,8 @@ module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/src'],
   setupFiles: ['<rootDir>/jest.setup.ts'],
+  // Repository specs share one real Postgres database and truncate tables
+  // between tests; running test files in parallel workers races those
+  // truncates/inserts across files. See docs/ASSUMPTIONS.md.
+  maxWorkers: 1,
 };
