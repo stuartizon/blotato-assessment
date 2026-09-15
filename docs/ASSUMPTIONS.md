@@ -120,6 +120,18 @@ rejected.
     would remain mocked regardless, since the write path is what's gated
     everywhere. Not pursued here to keep effort focused on the core
     design.
+- **Simulated failures are triggered via sentinel IDs, not randomness or
+  configuration.** `MockTwitterAdapter` returns deterministic seeded data
+  for normal calls, but a small set of exported sentinel values
+  (`MockTwitterFailureTrigger`, e.g. passed as `externalPostId` to
+  `fetchComments` or `externalParentCommentId` to `postReply`) make it
+  throw a specific, correctly-classified `PlatformApiError` instead. This
+  keeps error-path tests (and manual exercising of the worker's
+  retry/give-up logic in issue 6) deterministic and inspectable, without
+  needing a config flag or random fault injection that would make test
+  failures flaky or hard to reproduce. Other platforms' adapters are free
+  to use a different mechanism if one better fits their simulated shape —
+  this isn't part of the `PlatformCommentAdapter` contract.
 
 ## Async reply pipeline
 
