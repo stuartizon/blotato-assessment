@@ -57,31 +57,6 @@ Read, in this order:
   showing up on CI. Set this up as part of the initial project scaffold
   (issue 1), not as an afterthought.
 
-## Implementation priorities
-
-Roughly the order in `docs/ISSUES.md` (once converted to GitHub issues,
-per the workflow above):
-
-1. Migrations for the three tables in `docs/schema.md`
-2. `PlatformCommentAdapter` interface + registry (see
-   `docs/adapter-interface.md` for how this is expressed as NestJS
-   providers)
-3. **One fully working adapter** (pick one platform, e.g. a mock/fake
-   "twitter"-like adapter that simulates the shape of a real API without
-   needing real credentials) — do not try to build real integrations for
-   every platform. Stub the others with a `NotImplementedAdapter` or similar.
-4. `GET /posts/:postId/comments` — including the staleness check against
-   `last_synced_at`, triggering a sync via the adapter when stale, returning
-   the nested comment tree
-5. `POST /comments/:commentId/replies` — creates a `reply_jobs` row
-   (respecting `Idempotency-Key`), enqueues via pg-boss, returns 202
-6. The pg-boss worker — consumes reply jobs, calls the adapter's
-   `postReply`, classifies errors via `PlatformApiError`, updates job status
-7. `GET /reply-jobs/:jobId` — status polling endpoint
-
-Each of these should be driven test-first (red-green-refactor), not
-implemented and then tested after the fact.
-
 ## Things NOT to build
 
 These were explicitly scoped out — see `docs/ASSUMPTIONS.md` for the

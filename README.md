@@ -1,20 +1,78 @@
 # Comment System — Social Media Scheduling API
 
-A backend service for retrieving comments on published posts and replying to
-them, across multiple social platforms, with new platforms addable without
-changes to core logic.
+## What this is
 
-## Scope
+A social media scheduling product needs to let users see comments on their
+published posts and reply to them, across whichever platforms they've
+connected. This repo is a backend design + partial implementation of that:
+a REST API to retrieve a post's comments and reply to one, built so a new
+platform can be added without touching the core logic.
 
-This repo implements the backend only (REST API, database, background job
-worker). There is no frontend/UI in scope — see `docs/ASSUMPTIONS.md`.
+This was done as a take-home exercise. See `docs/` for the full design
+write-up (schema, adapter contract, error shape, API surface) and the
+assumptions made where the brief was silent.
 
-## Requirements covered
+## Approach, in brief
 
-- Retrieve comments for a published post (with nested replies)
-- Reply to a comment (posted to the platform, via an async job)
-- Multiple social platforms, via a common adapter interface
-- REST API exposing both of the above
+- **Adapter pattern.** Each platform gets one class implementing a common
+  `PlatformCommentAdapter` interface (fetch comments, post a reply). The
+  rest of the system — API, database, job worker — only ever talks to that
+  interface, never to a specific platform's API. Adding a platform means
+  writing one adapter, not changing existing code.
+- **Hybrid data model.** Comments are stored locally, not fetched live on
+  every request — fine for an occasional check, too slow if this were
+  powering an internal dashboard hitting it constantly. Local data is
+  served for reads and refreshed from the platform when it goes stale; the
+  platform itself is still treated as the source of truth, never the
+  database.
+- **Async replies.** Posting a reply doesn't call the platform inline from
+  the request — it queues a job and returns immediately, then a worker
+  posts it and tracks the outcome. Platform APIs can be slow, rate-limited,
+  or flaky, and this keeps that off the request path and gives retries
+  somewhere to live. Runs on pg-boss (Postgres-backed) rather than a real
+  queue like Kafka or SQS/Pub/Sub — right-sized for this system's current
+  scale, not a permanent choice; a production system at real throughput
+  would likely warrant one of those instead.
+
+## Demo platform: GoToSocial
+
+Real integrations with the likes of X, Instagram, or LinkedIn need OAuth
+app registration, approval processes, and often webhook setup — not
+something reasonable to stand up for a take-home. Instead, this repo
+integrates against [GoToSocial](https://docs.gotosocial.org), a real,
+self-hosted, Mastodon-API-compatible platform that runs locally in Docker.
+It's exercised with genuine HTTP calls, not mocks, so the adapter is a real
+working integration — just against a platform anyone can run on their
+laptop instead of one requiring app-store credentials.
+
+## Quick start
+
+Requires Node 20+ and Docker.
+
+```bash
+npm install
+cp .env.example .env         # defaults already match docker-compose.yml
+docker compose up -d         # starts Postgres, and GoToSocial pre-seeded with posts/comments
+npm run migrate              # creates published_posts, comments, reply_jobs
+npm run start:dev            # starts the API on http://localhost:3000
+```
+
+Open **http://localhost:8080/@blotato_seed** to see the seeded posts and
+comments in GoToSocial's own web UI before going further.
+
+Then, to see the reply flow work end to end through the real REST API:
+
+```bash
+scripts/setup-gotosocial.sh   # one-time: provisions the app's own account + access token
+                               # → add the printed GTS_ACCESS_TOKEN to .env, then restart start:dev
+npm run demo:reply            # replies to every seeded comment via the API
+```
+
+Refresh **http://localhost:8080/@blotato_seed** — the replies are now live
+on GoToSocial, posted by the app's account through
+`POST /comments/:commentId/replies`, the pg-boss worker, and
+`GoToSocialAdapter.postReply`. The demo is safe to re-run; it skips
+anything already replied to.
 
 ## Repo layout
 
@@ -27,119 +85,6 @@ docs/
   api-endpoints.md       — REST API surface
 CLAUDE.md                 — context file for AI-assisted implementation
 ```
-
-Implementation is tracked as [GitHub issues](https://github.com/stuartizon/blotato-assessment/issues), not as a markdown file — see `CLAUDE.md` for the ways-of-working this repo follows.
-
-## Setup
-
-Requires Node 20+ (pg-boss's minimum) and Docker (for local Postgres).
-
-```bash
-npm install
-cp .env.example .env       # defaults already match docker-compose.yml
-docker compose up -d       # starts Postgres on localhost:5432
-npm run migrate            # creates published_posts, comments, reply_jobs
-npm run start:dev          # http://localhost:3000/health
-```
-
-`docker compose up -d` also starts a [GoToSocial](https://docs.gotosocial.org)
-instance on `localhost:8080`, automatically seeded with sample posts (by a
-`blotato_seed` account) and comments on them (by a separate
-`blotato_commenter` account) — no manual steps needed to have real content
-to explore. It's a real, self-hosted, Mastodon-API-compatible platform used
-to exercise `GoToSocialAdapter` against genuine HTTP calls rather than
-mocks — see "Real platform integration: GoToSocial" in
-`docs/ASSUMPTIONS.md`. Its data (SQLite) lives in its own `gotosocial-data`
-Docker volume, fully separate from the project's own Postgres.
-
-### Testing against a real platform (optional)
-
-`scripts/setup-gotosocial.sh` provisions a test account and access token
-against the local GoToSocial instance — a one-time step, separate from the
-regular setup above:
-
-```bash
-docker compose up -d              # make sure GoToSocial is running first
-scripts/setup-gotosocial.sh
-```
-
-It creates a test account, registers an OAuth app, and then pauses for a
-manual step: it prints an authorize URL and that account's credentials, you
-open the URL in a browser, sign in, click "Allow", and paste the resulting
-code back into the prompt. (This step is kept manual by choice, not because
-it has to be — GoToSocial's OAuth flow turns out to be fully scriptable with
-plain HTTP, which is exactly how `docker compose up -d` seeds sample content
-automatically; see docs/ASSUMPTIONS.md. Here, a human deliberately
-provisioning the credential our own backend will authenticate with felt
-worth keeping explicit.) The script then exchanges that code for an access
-token and posts a seed status. It prints:
-
-- an access token to add to `.env` as `GTS_ACCESS_TOKEN`
-- the seed status's id, to use as `external_post_id` when creating a test
-  `published_posts` row for manual testing against the real adapter
-
-The script is safe to re-run — it reuses the account (and its saved
-credentials, in the gitignored `.gotosocial-setup-credentials`) if one
-already exists, rather than failing.
-
-With `GTS_ACCESS_TOKEN` set (in `.env`, or exported in your shell),
-`CommentsModule` registers the real `GoToSocialAdapter` instead of its
-`NotImplementedAdapter` stub, and `npm run test:live:gotosocial` runs a
-smoke test against the real running instance — fetching real comments,
-posting a real reply, and confirming an edited status is picked up on the
-next sync. It's skipped (not failed) when `GTS_ACCESS_TOKEN` is unset, and
-is never part of `npm test` or CI.
-
-### Demoing the reply flow
-
-There's no frontend in this repo (see `CLAUDE.md`), but `npm run demo:reply`
-shows the full reply-to-comment flow working end to end, purely through the
-REST API documented in `docs/api-endpoints.md` — against real data, not
-mocks:
-
-```bash
-docker compose up -d       # GoToSocial comes up pre-seeded with posts/comments
-scripts/setup-gotosocial.sh && add the printed GTS_ACCESS_TOKEN to .env
-npm run start:dev          # in one terminal
-npm run demo:reply         # in another
-```
-
-The auto-seeded GoToSocial content models this project's actual premise:
-`blotato_seed` (the "business") posts, `blotato_commenter` (someone else)
-comments on those posts, and the app — a third, separate account —
-auto-replies. The demo script walks every seeded post, registers each as a
-`published_posts` row (standing in for the post-management system this
-repo assumes exists elsewhere), calls `GET /posts/:postId/comments` (a real
-sync via `GoToSocialAdapter`) to find every comment not authored by us,
-replies to each via `POST /comments/:commentId/replies`, polls
-`GET /reply-jobs/:jobId` until the pg-boss worker has posted it, and prints
-a link to see the real replies live on GoToSocial. Safe to re-run — it
-skips any comment it's already answered, so a second run does nothing.
-
-Other scripts: `npm test`, `npm run lint`, `npm run format`, `npm run build`.
-Migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate)
-(plain SQL up/down in `migrations/`, matching `docs/schema.md` directly — no
-ORM). pg-boss manages its own `pgboss` schema in the same database
-automatically on startup — that's separate from `migrations/` and isn't
-something `npm run migrate` touches. A `pre-push` git hook (via Husky) runs
-lint, format check, and the test suite before every push.
-
-## Design at a glance
-
-- **Postgres + JSONB**, not a separate document store — relational integrity
-  where we need it (threading, dedup, job status), schemaless flexibility
-  where we need it (raw platform payloads).
-- **Hybrid sync model** — local data is authoritative for reads within a
-  staleness window (`last_synced_at`), platform is always authoritative for
-  writes.
-- **Adapter pattern** for platform abstraction — one `PlatformCommentAdapter`
-  implementation per platform, registered in a small registry. Adding a
-  platform means adding one class, not touching the schema, service layer,
-  or worker.
-- **Async reply pipeline** via pg-boss (Postgres-backed job queue), chosen
-  over Redis/BullMQ or a cloud queue to avoid introducing infrastructure
-  beyond what this exercise's scale warrants. See `docs/ASSUMPTIONS.md` for
-  the full reasoning.
 
 ## AI tool usage
 
