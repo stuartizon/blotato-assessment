@@ -2,15 +2,16 @@
 
 ## What this is
 
-A social media scheduling product needs to let users see comments on their
-published posts and reply to them, across whichever platforms they've
-connected. This repo is a backend design + partial implementation of that:
-a REST API to retrieve a post's comments and reply to one, built so a new
-platform can be added without touching the core logic.
+A backend for viewing and replying to comments on social media posts —
+across multiple platforms (X, Instagram, GoToSocial, etc.) through one
+consistent REST API, so a client doesn't need separate logic per platform.
+It's the kind of feature that would sit behind a social media scheduling
+product, letting a business manage engagement on its published posts
+without visiting each platform directly.
 
-This was done as a take-home exercise. See `docs/` for the full design
-write-up (schema, adapter contract, error shape, API surface) and the
-assumptions made where the brief was silent.
+This was done as a take-home exercise. See [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md)
+for the assumptions made where the brief was silent, and `docs/` for the
+full design write-up (schema, adapter contract, error shape, API surface).
 
 ## Approach, in brief
 
@@ -57,8 +58,9 @@ npm run migrate              # creates published_posts, comments, reply_jobs
 npm run start:dev            # starts the API on http://localhost:3000
 ```
 
-Open **http://localhost:8080/@blotato_seed** to see the seeded posts and
-comments in GoToSocial's own web UI before going further.
+Open [http://localhost:8080/@blotato_seed](http://localhost:8080/@blotato_seed)
+to see the seeded posts and comments in GoToSocial's own web UI before
+going further.
 
 Then, to see the reply flow work end to end through the real REST API:
 
@@ -68,8 +70,8 @@ scripts/setup-gotosocial.sh   # one-time: provisions the app's own account + acc
 npm run demo:reply            # replies to every seeded comment via the API
 ```
 
-Refresh **http://localhost:8080/@blotato_seed** — the replies are now live
-on GoToSocial, posted by the app's account through
+Refresh [http://localhost:8080/@blotato_seed](http://localhost:8080/@blotato_seed) —
+the replies are now live on GoToSocial, posted by the app's account through
 `POST /comments/:commentId/replies`, the pg-boss worker, and
 `GoToSocialAdapter.postReply`. The demo is safe to re-run; it skips
 anything already replied to.
@@ -77,14 +79,25 @@ anything already replied to.
 ## Repo layout
 
 ```
-docs/
-  ASSUMPTIONS.md         — explicit assumptions made where the brief was silent
-  schema.md              — database schema + rationale
-  adapter-interface.md   — PlatformCommentAdapter contract + CanonicalComment type
-  error-shape.md         — PlatformApiError and retry classification
-  api-endpoints.md       — REST API surface
-CLAUDE.md                 — context file for AI-assisted implementation
+src/
+  comments/      — GET /posts/:postId/comments, platform adapters, sync logic
+  reply-jobs/    — POST /comments/:commentId/replies, GET /reply-jobs/:jobId, the worker
+  queue/         — pg-boss setup
+  database/      — Postgres connection pool
+migrations/      — node-pg-migrate migrations (see docs/schema.md)
+scripts/         — GoToSocial setup + demo-reply-flow.ts
+docs/            — design docs, listed below
+CLAUDE.md        — context file for AI-assisted implementation
 ```
+
+- [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) — assumptions made where the
+  brief was silent; start here
+- [docs/schema.md](docs/schema.md) — database schema + rationale
+- [docs/adapter-interface.md](docs/adapter-interface.md) — `PlatformCommentAdapter`
+  contract + `CanonicalComment` type
+- [docs/error-shape.md](docs/error-shape.md) — `PlatformApiError` and retry
+  classification
+- [docs/api-endpoints.md](docs/api-endpoints.md) — REST API surface
 
 ## AI tool usage
 
