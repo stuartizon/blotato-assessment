@@ -1,8 +1,13 @@
 # REST API
 
-Three endpoints, covering read, write, and status-check for the reply
-lifecycle. See `ASSUMPTIONS.md` for what's deliberately excluded (post
+Three business endpoints, covering read, write, and status-check for the
+reply lifecycle. See `ASSUMPTIONS.md` for what's deliberately excluded (post
 listing, `includeDeleted`, a computed reply-status field).
+
+There's also an operational `GET /health` (returns `{ "status": "ok" }`),
+added as part of the initial NestJS scaffold — a liveness probe for the
+process itself, not part of this document's business API surface, so it
+carries no request/response contract beyond that.
 
 ## `GET /posts/:postId/comments`
 
