@@ -67,7 +67,15 @@ export class GoToSocialAdapter implements PlatformCommentAdapter {
     const status = await this.request<GoToSocialStatus>(
       'POST',
       '/api/v1/statuses',
-      { status: body, in_reply_to_id: externalParentCommentId },
+      {
+        status: body,
+        in_reply_to_id: externalParentCommentId,
+        // GoToSocial defaults to 'unlisted' when omitted, which reads as
+        // hidden/not-public in the web UI's thread view — a reply posted
+        // on behalf of the business should be as visible as the comment
+        // it's replying to.
+        visibility: 'public',
+      },
     );
 
     return this.toCanonicalComment(status);

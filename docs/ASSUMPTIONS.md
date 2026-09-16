@@ -265,6 +265,13 @@ rejected.
   project; the exact required environment variables and endpoint shapes
   should be checked against its current docs at implementation time, not
   assumed from this document.
+- **`GoToSocialAdapter.postReply` explicitly sends `visibility: 'public'`.**
+  Left unset, GoToSocial's `POST /api/v1/statuses` defaults to `unlisted`,
+  which reads as hidden/not-public in the web UI's thread view — the whole
+  point of replying on the business's behalf is for that reply to be as
+  visible as the comment it's answering. Found via `npm run demo:reply`
+  producing replies the web UI showed as hidden; confirmed against a live
+  instance and fixed test-first (see gotosocial.adapter.spec.ts).
 
 ## Async reply pipeline
 

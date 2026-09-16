@@ -199,6 +199,7 @@ describe('GoToSocialAdapter', () => {
           body: JSON.stringify({
             status: 'Thanks!',
             in_reply_to_id: 'parent-1',
+            visibility: 'public',
           }),
         }),
       );
