@@ -98,6 +98,37 @@ rejected.
   history is retained. Included because the blast radius is small — a
   single-field upsert against an existing constraint, no structural
   complexity.
+- **`since` means "created or updated since," not just "created since."**
+  A code-review pass found that `CommentsService.getCommentTreeForPost`
+  always calls `fetchComments` with `since: post.lastSyncedAt` on every
+  re-sync (see "Hybrid, not pure live-fetch..." above), while
+  `MockTwitterAdapter` originally filtered `since` purely on `postedAt`.
+  Concretely: a comment is fetched once, in the sync cycle right after
+  it's posted; the next sync's `since` moves past that comment's
+  `postedAt` and it's never asked about again — so however many times it's
+  edited on the platform afterward, this system never re-fetches it to
+  notice. The upsert-on-edit SQL above was correct but practically
+  unreachable, and this tension wasn't previously called out anywhere,
+  unlike other known gaps in this document.
+  Fixed by redefining `since`'s contract (see `docs/adapter-interface.md`):
+  an adapter must return a comment if it was *created or edited* after
+  `since`, not only if it's newly created. This keeps `CommentsService`
+  and the schema untouched — the fix is entirely the adapter's
+  responsibility, consistent with the adapter interface's existing
+  "adapters own pagination/threading normalization" division of labor.
+  `MockTwitterAdapter` demonstrates this via a `MockTwitterEditTrigger`
+  sentinel (mirroring `MockTwitterFailureTrigger`), since its dataset is
+  otherwise fully deterministic/time-independent and has no other way to
+  produce an "edited" comment for a test to observe.
+- **Real (non-mock) adapters may need more than a `since` filter to fully
+  honor the contract above.** It assumes a platform's comment-list API can
+  filter or sort by last-modified time. Not every platform's API
+  necessarily exposes that (some only expose creation time). An adapter
+  for such a platform would need a fallback — most plausibly a periodic
+  full re-fetch alongside the cheap incremental one — to actually catch
+  edits made on that platform. Flagged here as a real gap for that
+  hypothetical adapter, not resolved because no such adapter exists yet in
+  this repo (see "Platform integration (real vs. mock)" below).
 - **Deletion logic is explicitly out of scope.** The schema includes a
   `deleted_at` column as a soft-delete marker (avoiding foreign-key
   cascade/orphaning issues on the self-referencing `parent_comment_id`),

@@ -19,7 +19,7 @@ interface CanonicalComment {
 }
 
 interface FetchCommentsOptions {
-  since?: Date; // used for incremental sync — only fetch comments newer than this
+  since?: Date; // used for incremental sync — fetch comments created OR edited since this time
 }
 
 // ---- The adapter contract ----
@@ -33,6 +33,14 @@ interface PlatformCommentAdapter {
    * normalize the platform's actual threading behavior (e.g. flattening
    * deep reply chains) into CanonicalComment's parent/child shape.
    * Pagination mechanics are never exposed on this interface.
+   *
+   * `since`, when provided, must include comments created OR edited after
+   * that time — not only newly-created ones. A caller doing incremental
+   * sync re-uses its last sync time as `since` on every call (see
+   * CommentsService), so a comment that stops being "new" would otherwise
+   * never be checked for edits again. How an adapter determines "edited
+   * since" is platform-specific and internal to it (e.g. a platform's own
+   * last-modified timestamp on the comment) — see ASSUMPTIONS.md.
    */
   fetchComments(
     externalPostId: string,
@@ -89,6 +97,11 @@ class CommentAdapterRegistry {
   about our internal database IDs — it speaks the platform's language in
   and out, and nothing else. Resolution happens via the
   `(platform, external_comment_id)` unique constraint.
+- **`since` means "created or updated since," not just "created since."**
+  An earlier version of this contract only covered new comments, which
+  made edit-detection unreachable in practice — see ASSUMPTIONS.md,
+  "`since` means 'created or updated since'" for the full story of why
+  this changed.
 - **No cursor/pagination parameter on `fetchComments`.** No caller in this
   system ever needs a single page — the service layer always wants
   "everything" (or "everything since X"). Pagination is entirely an

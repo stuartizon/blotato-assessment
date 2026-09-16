@@ -19,9 +19,21 @@ export const MockTwitterFailureTrigger = {
   UNKNOWN: 'SIMULATE_UNKNOWN_ERROR',
 } as const;
 
+/**
+ * Sentinel externalPostId that simulates a comment which was edited long
+ * after it was originally posted — see docs/ASSUMPTIONS.md, "`since` means
+ * 'created or updated since'". The generated dataset is otherwise fully
+ * deterministic/time-independent, so this is the only way to exercise the
+ * "an old comment gets edited" case in a test.
+ */
+export const MockTwitterEditTrigger = {
+  RECENTLY_EDITED_COMMENT: 'SIMULATE_RECENTLY_EDITED_COMMENT',
+} as const;
+
 const SIMULATED_RATE_LIMIT_RETRY_AFTER_MS = 30_000;
 const REPLY_ACCOUNT_ID = 'mock-twitter-authenticated-account';
 const REPLY_ACCOUNT_DISPLAY_NAME = 'Mock Account';
+const RECENTLY_EDITED_COMMENT_POSTED_AT = '2026-01-01T00:00:00.000Z';
 
 interface MockTweetPayload {
   id_str: string;
@@ -29,6 +41,12 @@ interface MockTweetPayload {
   user: { id_str: string; name: string };
   full_text: string;
   created_at: string;
+  // Platform's own last-edited timestamp, when the comment has been
+  // edited since it was posted. Absent (or equal to created_at) means
+  // never edited. Mirrors how real platforms that support comment editing
+  // surface it (e.g. a separate edited/updated timestamp on the comment
+  // object) — see docs/adapter-interface.md's `since` contract.
+  edited_at?: string;
 }
 
 /**
@@ -56,14 +74,17 @@ export class MockTwitterAdapter implements PlatformCommentAdapter {
       );
     }
 
-    const comments = this.generateSimulatedThread(externalPostId).map((raw) =>
-      this.toCanonicalComment(raw),
-    );
+    const raws =
+      externalPostId === MockTwitterEditTrigger.RECENTLY_EDITED_COMMENT
+        ? this.generateRecentlyEditedComment()
+        : this.generateSimulatedThread(externalPostId);
 
     const since = options?.since;
-    return since
-      ? comments.filter((c) => c.postedAt !== null && c.postedAt > since)
-      : comments;
+    const filtered = since
+      ? raws.filter((raw) => this.lastModifiedAt(raw) > since)
+      : raws;
+
+    return filtered.map((raw) => this.toCanonicalComment(raw));
   }
 
   async postReply(
@@ -186,6 +207,29 @@ export class MockTwitterAdapter implements PlatformCommentAdapter {
     }
 
     return comments;
+  }
+
+  /**
+   * The since-filtering equivalent of "last touched": an edited comment
+   * counts as newer than its original postedAt, so a re-sync using
+   * `since` picks it back up. See docs/ASSUMPTIONS.md.
+   */
+  private lastModifiedAt(raw: MockTweetPayload): Date {
+    return new Date(raw.edited_at ?? raw.created_at);
+  }
+
+  /** A single top-level comment, posted long ago but edited "now". */
+  private generateRecentlyEditedComment(): MockTweetPayload[] {
+    return [
+      {
+        id_str: 'mock-recently-edited-comment',
+        in_reply_to_status_id_str: null,
+        user: { id_str: 'mock-edited-user', name: 'Simulated Edited User' },
+        full_text: 'This comment was edited after it was first posted',
+        created_at: RECENTLY_EDITED_COMMENT_POSTED_AT,
+        edited_at: new Date().toISOString(),
+      },
+    ];
   }
 
   private hash(input: string): number {

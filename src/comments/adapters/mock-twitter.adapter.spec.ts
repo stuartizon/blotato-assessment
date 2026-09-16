@@ -1,6 +1,7 @@
 import { PlatformApiError } from '../errors/platform-api-error';
 import {
   MockTwitterAdapter,
+  MockTwitterEditTrigger,
   MockTwitterFailureTrigger,
 } from './mock-twitter.adapter';
 
@@ -87,6 +88,21 @@ describe('MockTwitterAdapter', () => {
         kind: 'not_found',
         retryable: false,
       });
+    });
+
+    it('re-includes a comment edited after options.since, even though it was originally posted well before it', async () => {
+      // The simulated edit trigger always reports itself as edited "now" —
+      // any since cutoff before the real current time proves it survives
+      // the since filter on its edited time, not its (much older) postedAt.
+      const sinceCutoff = new Date('2026-06-01T00:00:00.000Z');
+
+      const result = await adapter.fetchComments(
+        MockTwitterEditTrigger.RECENTLY_EDITED_COMMENT,
+        { since: sinceCutoff },
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0].postedAt!.getTime()).toBeLessThan(sinceCutoff.getTime());
     });
   });
 
