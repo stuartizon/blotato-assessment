@@ -43,12 +43,13 @@ npm run start:dev          # http://localhost:3000/health
 ```
 
 `docker compose up -d` also starts a [GoToSocial](https://docs.gotosocial.org)
-instance on `localhost:8080`, unconfigured and with no manual steps needed to
-reach a running server. It's a real, self-hosted, Mastodon-API-compatible
-platform used to exercise `GoToSocialAdapter` against genuine HTTP calls
-rather than mocks — see "Real platform integration: GoToSocial" in
-`docs/ASSUMPTIONS.md`. Its data (SQLite) lives in its own `gotosocial-data`
-Docker volume, fully separate from the project's own Postgres.
+instance on `localhost:8080`, automatically seeded with a few sample posts
+and comments — no manual steps needed to have real content to explore. It's
+a real, self-hosted, Mastodon-API-compatible platform used to exercise
+`GoToSocialAdapter` against genuine HTTP calls rather than mocks — see "Real
+platform integration: GoToSocial" in `docs/ASSUMPTIONS.md`. Its data
+(SQLite) lives in its own `gotosocial-data` Docker volume, fully separate
+from the project's own Postgres.
 
 ### Testing against a real platform (optional)
 
@@ -61,11 +62,16 @@ docker compose up -d              # make sure GoToSocial is running first
 scripts/setup-gotosocial.sh
 ```
 
-It creates a test account, registers an OAuth app, and then pauses for the
-one step that can't be scripted: it prints an authorize URL and that
-account's credentials, you open the URL in a browser, sign in, click
-"Allow", and paste the resulting code back into the prompt. The script then
-exchanges that code for an access token and posts a seed status. It prints:
+It creates a test account, registers an OAuth app, and then pauses for a
+manual step: it prints an authorize URL and that account's credentials, you
+open the URL in a browser, sign in, click "Allow", and paste the resulting
+code back into the prompt. (This step is kept manual by choice, not because
+it has to be — GoToSocial's OAuth flow turns out to be fully scriptable with
+plain HTTP, which is exactly how `docker compose up -d` seeds sample content
+automatically; see docs/ASSUMPTIONS.md. Here, a human deliberately
+provisioning the credential our own backend will authenticate with felt
+worth keeping explicit.) The script then exchanges that code for an access
+token and posts a seed status. It prints:
 
 - an access token to add to `.env` as `GTS_ACCESS_TOKEN`
 - the seed status's id, to use as `external_post_id` when creating a test

@@ -1,3 +1,16 @@
+x-gotosocial-env: &gotosocial-env
+  GTS_HOST: localhost
+  GTS_PROTOCOL: http
+  GTS_DB_TYPE: sqlite
+  GTS_DB_ADDRESS: /gotosocial/storage/sqlite.db
+  GTS_LETSENCRYPT_ENABLED: 'false'
+  GTS_WAZERO_COMPILATION_CACHE: /gotosocial/.cache
+
+x-gotosocial-seed-env: &gotosocial-seed-env
+  GTS_SEED_USERNAME: ${GTS_SEED_USERNAME:-blotato_seed}
+  GTS_SEED_EMAIL: ${GTS_SEED_EMAIL:-blotato-seed@example.org}
+  GTS_SEED_PASSWORD: ${GTS_SEED_PASSWORD:-BlotatoSeed_2026!}
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -11,23 +24,57 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   # Real, self-hosted, Mastodon-API-compatible platform used to exercise
-  # GoToSocialAdapter against genuine HTTP calls. Fully unconfigured out of
-  # the box: brings up a running instance with no manual steps. Account +
-  # access-token provisioning is a separate one-time step — see
-  # scripts/setup-gotosocial.sh and docs/ASSUMPTIONS.md.
+  # GoToSocialAdapter against genuine HTTP calls. Comes up pre-seeded with
+  # sample posts/comments (via gotosocial-account-init + gotosocial-seed
+  # below) — no manual step needed to have real content to explore. Access-
+  # token provisioning for *our own app* is a separate, deliberately manual
+  # one-time step — see scripts/setup-gotosocial.sh and docs/ASSUMPTIONS.md.
   gotosocial:
     image: docker.io/superseriousbusiness/gotosocial:latest
     environment:
-      GTS_HOST: localhost
-      GTS_PROTOCOL: http
-      GTS_DB_TYPE: sqlite
-      GTS_DB_ADDRESS: /gotosocial/storage/sqlite.db
-      GTS_LETSENCRYPT_ENABLED: 'false'
-      GTS_WAZERO_COMPILATION_CACHE: /gotosocial/.cache
+      <<: *gotosocial-env
     ports:
       - '8080:8080'
     volumes:
       - gotosocial-data:/gotosocial/storage
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://localhost:8080/readyz']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # One-shot: creates the account gotosocial-seed posts through. Uses the
+  # same image + storage volume as `gotosocial` (not `docker exec` into it)
+  # so it works the same way whether gotosocial was just started or was
+  # already running — see scripts/seed-gotosocial-account.sh.
+  gotosocial-account-init:
+    image: docker.io/superseriousbusiness/gotosocial:latest
+    environment:
+      <<: [*gotosocial-env, *gotosocial-seed-env]
+    volumes:
+      - gotosocial-data:/gotosocial/storage
+      - ./scripts/seed-gotosocial-account.sh:/seed-account.sh:ro
+    depends_on:
+      gotosocial:
+        condition: service_healthy
+    entrypoint: ['/bin/sh', '/seed-account.sh']
+
+  # One-shot: posts sample statuses/replies through the seed account via
+  # GoToSocial's real HTTP API (see scripts/seed-gotosocial-data.sh). Skips
+  # itself once the seed account already has posts (checked via the API),
+  # so repeat `docker compose up` runs don't pile up duplicates.
+  gotosocial-seed:
+    image: curlimages/curl:8.11.1
+    environment:
+      <<: *gotosocial-seed-env
+      GTS_BASE_URL: http://gotosocial:8080
+    volumes:
+      - ./scripts/seed-gotosocial-data.sh:/seed-data.sh:ro
+    depends_on:
+      gotosocial-account-init:
+        condition: service_completed_successfully
+    entrypoint: ['/bin/sh', '/seed-data.sh']
 
 volumes:
   postgres-data:

@@ -206,23 +206,47 @@ rejected.
   `published_posts`/`comments`/`reply_jobs` schema above remains the only
   thing living in the project's own Postgres instance. GoToSocial's
   SQLite file lives in its own Docker volume.
-- **Account and access-token provisioning is a documented one-time manual
-  step, not part of `docker compose up`.** GoToSocial's OAuth flow
-  requires opening an authorize URL in a browser once and copying an
-  out-of-band code — there's no way to fully script this without either
-  browser automation or bypassing the consent step entirely (which would
-  mean trusting an unvetted method rather than GoToSocial's own documented
-  flow). `scripts/setup-gotosocial.sh` scripts everything scriptable
-  (account creation via the container's CLI, app registration, token
-  exchange) and stops to prompt for the one manual step (open this URL,
-  paste the code back). The resulting token is stored in `.env` as
-  `GTS_ACCESS_TOKEN` — same pattern as any other local secret, gitignored
-  as usual.
-- **A real post/comment needs seeding before `fetchComments` has anything
-  to return.** `scripts/setup-gotosocial.sh` also posts one seed status
-  via the newly-created account and prints the resulting id — the value to
-  use as `external_post_id` when creating a `published_posts` row for
-  manual testing against the real adapter.
+- **`docker compose up -d` alone brings up GoToSocial pre-seeded with
+  sample posts and comments** — no manual step needed to have real content
+  to explore. Two one-shot services handle it:
+  `gotosocial-account-init` (same image + storage volume as `gotosocial`,
+  runs `admin account create` for a seed account, tolerating "already
+  exists" on repeat runs) and `gotosocial-seed` (a small `curlimages/curl`
+  container that posts a few sample statuses/replies through GoToSocial's
+  real HTTP API as that account). This corrects an earlier version of this
+  document, which assumed GoToSocial's OAuth flow "requires opening an
+  authorize URL in a browser" and "there's no way to fully script this" —
+  in fact the whole flow (sign in, authorize, exchange) is just a sequence
+  of HTTP requests a browser happens to make; scripting it with `curl`
+  works fine and needs no browser automation or bypassed consent step, it
+  just hadn't been tried. `gotosocial-seed` is idempotent by checking the
+  seed account's own `statuses_count` via the API (not a marker file —
+  `curlimages/curl`'s default user doesn't own the `gotosocial-data`
+  volume, which is fine since checking real state is more robust than a
+  side-channel marker anyway), so repeat `docker compose up` runs don't
+  pile up duplicate posts.
+- **`gotosocial-seed` threads its session cookie through manually instead
+  of using curl's cookie jar.** GoToSocial scopes its session cookie to
+  `GTS_HOST` ("localhost", so the human-facing flows below work from the
+  host machine), but `gotosocial-seed` talks to the server over the Docker
+  network as `gotosocial` — a legitimate host/cookie-domain mismatch that
+  curl's jar correctly refuses to send. Extracting `Set-Cookie` and
+  resending it via an explicit header sidesteps that without changing
+  `GTS_HOST`.
+- **Provisioning *our own app's* `GTS_ACCESS_TOKEN` stays a separate,
+  deliberately manual one-time step**, distinct from the automatic
+  content-seeding above — `scripts/setup-gotosocial.sh` still creates its
+  own account and prompts a human to open the authorize URL and paste back
+  the code. Now that the OAuth flow is known to be fully scriptable (see
+  above), this is a choice, not a technical constraint: a human
+  consciously provisioning the credential our own backend will actually
+  authenticate with is worth keeping deliberate, even though
+  `gotosocial-seed` proves the same flow could be automated end-to-end.
+  `scripts/setup-gotosocial.sh` also posts one seed status via its own
+  account and prints the resulting id — the value to use as
+  `external_post_id` when creating a `published_posts` row for manual
+  testing against the real adapter (the automatically-seeded posts above
+  work equally well for this — either account's post ids are usable).
 - **`GoToSocialAdapter`'s unit tests mock the HTTP layer and run in CI**,
   same as `MockTwitterAdapter`'s. A separate, real-instance smoke test
   exists for exercising the actual running container end-to-end (fetch,
