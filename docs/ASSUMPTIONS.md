@@ -185,6 +185,24 @@ rejected.
   `pg-boss@10` supports Node ≥20 and is still CommonJS, so it's the newest
   version that doesn't force either a Node bump or a project-wide ESM
   migration — neither of which this feature warrants.
+- **Retry policy: `retryLimit: 5`, `retryDelay: 5` (seconds), `retryBackoff:
+  true`.** Not specified anywhere in `docs/` beyond "retried per pg-boss's
+  policy," so a concrete policy was picked and set on the queue itself (via
+  `createQueue`/`updateQueue` in `ReplyJobsQueueService`) rather than left
+  at pg-boss's defaults — five attempts with exponential backoff is a
+  reasonable balance between riding out a transient blip (a rate limit, a
+  5xx) and not hammering a platform that's genuinely down. `retryAfterMs`
+  on a `rate_limited` `PlatformApiError` (a hint from the platform's own
+  rate-limit headers) is not currently used to size an individual retry's
+  delay — the worker just rethrows and lets the queue's uniform backoff
+  handle it — noted here as a gap rather than silently ignored.
+- **`createQueue` in pg-boss is create-only — it no-ops on a queue that
+  already exists, silently ignoring any options passed.** `ReplyJobsQueueService`
+  calls `updateQueue` right after `createQueue` for exactly this reason:
+  without it, a later change to the retry policy in code would never take
+  effect on a queue created by an earlier deploy. Confirmed by inspecting
+  `pgboss.queue` directly against a locally running instance — this wasn't
+  documented in pg-boss's own README.
 - **The `reply_jobs` unique index on `idempotency_key` is the source of
   truth for deduplication, not an application-level check-then-insert.**
   The create-reply endpoint does check for an existing job by key before

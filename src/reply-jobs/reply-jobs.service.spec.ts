@@ -12,6 +12,7 @@ describe('ReplyJobsService', () => {
 
   const comment = {
     id: 'comment-1',
+    postId: 'post-1',
     platform: 'twitter' as const,
     externalCommentId: 'ext-comment-1',
   };

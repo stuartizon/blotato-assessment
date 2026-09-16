@@ -3,11 +3,17 @@ import { ReplyJobsController } from './reply-jobs.controller';
 import { ReplyJobsService } from './reply-jobs.service';
 import { ReplyJobsRepository } from './repositories/reply-jobs.repository';
 import { ReplyJobsQueueService } from './queue/reply-jobs-queue.service';
+import { ReplyJobsWorker } from './reply-jobs.worker';
 import { CommentsModule } from '../comments/comments.module';
 
 @Module({
   imports: [CommentsModule],
   controllers: [ReplyJobsController],
-  providers: [ReplyJobsService, ReplyJobsRepository, ReplyJobsQueueService],
+  providers: [
+    ReplyJobsService,
+    ReplyJobsRepository,
+    ReplyJobsQueueService,
+    ReplyJobsWorker,
+  ],
 })
 export class ReplyJobsModule {}

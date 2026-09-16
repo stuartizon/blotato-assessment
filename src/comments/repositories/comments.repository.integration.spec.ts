@@ -196,9 +196,72 @@ describe('CommentsRepository', () => {
 
       expect(result).toEqual({
         id: commentId,
+        postId,
         platform: 'twitter',
         externalCommentId: 'c1',
       });
+    });
+  });
+
+  describe('upsertReply', () => {
+    it('inserts the reply under the given parent, without needing to resolve it by external id', async () => {
+      const postId = await insertPost();
+      await repository.upsertMany('twitter', postId, [
+        comment({ externalCommentId: 'top-1', externalParentCommentId: null }),
+      ]);
+      const parentRow = await pool.query(
+        `SELECT id FROM comments WHERE external_comment_id = 'top-1'`,
+      );
+      const parentId = parentRow.rows[0].id as string;
+
+      const replyId = await repository.upsertReply(
+        'twitter',
+        postId,
+        parentId,
+        comment({
+          externalCommentId: 'reply-1',
+          externalParentCommentId: 'top-1',
+          body: 'A reply',
+        }),
+      );
+
+      const replyRow = await pool.query(
+        `SELECT parent_comment_id, body FROM comments WHERE id = $1`,
+        [replyId],
+      );
+      expect(replyRow.rows[0].parent_comment_id).toBe(parentId);
+      expect(replyRow.rows[0].body).toBe('A reply');
+    });
+
+    it('updates the existing row when the external comment id already exists', async () => {
+      const postId = await insertPost();
+      await repository.upsertMany('twitter', postId, [
+        comment({ externalCommentId: 'top-1', externalParentCommentId: null }),
+      ]);
+      const parentRow = await pool.query(
+        `SELECT id FROM comments WHERE external_comment_id = 'top-1'`,
+      );
+      const parentId = parentRow.rows[0].id as string;
+      const firstId = await repository.upsertReply(
+        'twitter',
+        postId,
+        parentId,
+        comment({ externalCommentId: 'reply-1', body: 'Original' }),
+      );
+
+      const secondId = await repository.upsertReply(
+        'twitter',
+        postId,
+        parentId,
+        comment({ externalCommentId: 'reply-1', body: 'Edited' }),
+      );
+
+      expect(secondId).toBe(firstId);
+      const rows = await pool.query(
+        `SELECT body FROM comments WHERE external_comment_id = 'reply-1'`,
+      );
+      expect(rows.rows).toHaveLength(1);
+      expect(rows.rows[0].body).toBe('Edited');
     });
   });
 

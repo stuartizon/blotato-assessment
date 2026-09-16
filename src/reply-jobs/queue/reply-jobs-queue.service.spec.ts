@@ -9,6 +9,7 @@ describe('ReplyJobsQueueService', () => {
   beforeEach(() => {
     boss = {
       createQueue: jest.fn(),
+      updateQueue: jest.fn(),
       send: jest.fn(),
     } as unknown as jest.Mocked<PgBoss>;
 
@@ -16,10 +17,28 @@ describe('ReplyJobsQueueService', () => {
   });
 
   describe('onModuleInit', () => {
-    it('ensures the reply-jobs queue exists', async () => {
+    it('ensures the reply-jobs queue exists, with retries enabled', async () => {
       await service.onModuleInit();
 
-      expect(boss.createQueue).toHaveBeenCalledWith(REPLY_JOBS_QUEUE_NAME);
+      expect(boss.createQueue).toHaveBeenCalledWith(
+        REPLY_JOBS_QUEUE_NAME,
+        expect.objectContaining({
+          retryLimit: expect.any(Number),
+          retryBackoff: true,
+        }),
+      );
+    });
+
+    it('also updates the queue, since createQueue is a no-op on one that already exists', async () => {
+      await service.onModuleInit();
+
+      expect(boss.updateQueue).toHaveBeenCalledWith(
+        REPLY_JOBS_QUEUE_NAME,
+        expect.objectContaining({
+          retryLimit: expect.any(Number),
+          retryBackoff: true,
+        }),
+      );
     });
   });
 

@@ -99,4 +99,41 @@ export class ReplyJobsRepository {
     }
     return mapRow(result.rows[0]);
   }
+
+  async findById(id: string): Promise<ReplyJobRecord | null> {
+    const result = await this.pool.query(
+      `SELECT ${SELECT_COLUMNS} FROM reply_jobs WHERE id = $1`,
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+    return mapRow(result.rows[0]);
+  }
+
+  async markProcessing(id: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE reply_jobs SET status = 'processing', updated_at = now() WHERE id = $1`,
+      [id],
+    );
+  }
+
+  async markSent(id: string, resultCommentId: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE reply_jobs
+       SET status = 'sent', result_comment_id = $2, updated_at = now()
+       WHERE id = $1`,
+      [id, resultCommentId],
+    );
+  }
+
+  async markFailed(id: string, lastError: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE reply_jobs
+       SET status = 'failed', last_error = $2, updated_at = now()
+       WHERE id = $1`,
+      [id, lastError],
+    );
+  }
 }

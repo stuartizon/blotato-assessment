@@ -16,9 +16,15 @@ export interface CommentTreeNode {
 
 export interface CommentRecord {
   id: string;
+  postId: string;
   platform: Platform;
   externalCommentId: string;
 }
+
+// Just enough of Pool/PoolClient's shared shape to run a query — lets
+// upsertOne run either inside upsertMany's transaction or standalone (see
+// upsertReply) without duplicating the upsert SQL.
+type Queryable = Pick<PoolClient, 'query'>;
 
 @Injectable()
 export class CommentsRepository {
@@ -26,7 +32,7 @@ export class CommentsRepository {
 
   async findById(id: string): Promise<CommentRecord | null> {
     const result = await this.pool.query(
-      `SELECT id, platform, external_comment_id FROM comments WHERE id = $1`,
+      `SELECT id, post_id, platform, external_comment_id FROM comments WHERE id = $1`,
       [id],
     );
 
@@ -37,9 +43,31 @@ export class CommentsRepository {
     const row = result.rows[0];
     return {
       id: row.id,
+      postId: row.post_id,
       platform: row.platform,
       externalCommentId: row.external_comment_id,
     };
+  }
+
+  /**
+   * Upserts a single reply once the platform has confirmed it (see
+   * docs/ASSUMPTIONS.md, "Platform is always authoritative for writes").
+   * The parent is already known internally (it's the comment being replied
+   * to), so unlike upsertMany this never needs to resolve it by external id.
+   */
+  async upsertReply(
+    platform: Platform,
+    postId: string,
+    parentCommentId: string,
+    comment: CanonicalComment,
+  ): Promise<string> {
+    return this.upsertOne(
+      this.pool,
+      platform,
+      postId,
+      comment,
+      parentCommentId,
+    );
   }
 
   /**
@@ -163,7 +191,7 @@ export class CommentsRepository {
   }
 
   private async resolveParentId(
-    client: PoolClient,
+    client: Queryable,
     platform: Platform,
     externalParentCommentId: string | null,
     internalIdByExternalId: Map<string, string>,
@@ -189,7 +217,7 @@ export class CommentsRepository {
   }
 
   private async upsertOne(
-    client: PoolClient,
+    client: Queryable,
     platform: Platform,
     postId: string,
     comment: CanonicalComment,

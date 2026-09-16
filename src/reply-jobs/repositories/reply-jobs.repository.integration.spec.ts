@@ -113,4 +113,81 @@ describe('ReplyJobsRepository', () => {
       });
     });
   });
+
+  describe('findById', () => {
+    it('returns null when no job exists with that id', async () => {
+      const result = await repository.findById(
+        '00000000-0000-0000-0000-000000000000',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('returns the job mapped to camelCase fields', async () => {
+      const commentId = await insertComment();
+      const created = await repository.create({
+        parentCommentId: commentId,
+        platform: 'twitter',
+        body: 'Thanks!',
+        idempotencyKey: 'key-1',
+      });
+
+      const result = await repository.findById(created!.id);
+
+      expect(result).toEqual(created);
+    });
+  });
+
+  describe('markProcessing', () => {
+    it('sets status to processing', async () => {
+      const commentId = await insertComment();
+      const created = await repository.create({
+        parentCommentId: commentId,
+        platform: 'twitter',
+        body: 'Thanks!',
+        idempotencyKey: 'key-1',
+      });
+
+      await repository.markProcessing(created!.id);
+
+      const result = await repository.findById(created!.id);
+      expect(result!.status).toBe('processing');
+    });
+  });
+
+  describe('markSent', () => {
+    it('sets status to sent and stores the result comment id', async () => {
+      const commentId = await insertComment();
+      const created = await repository.create({
+        parentCommentId: commentId,
+        platform: 'twitter',
+        body: 'Thanks!',
+        idempotencyKey: 'key-1',
+      });
+
+      await repository.markSent(created!.id, commentId);
+
+      const result = await repository.findById(created!.id);
+      expect(result!.status).toBe('sent');
+      expect(result!.resultCommentId).toBe(commentId);
+    });
+  });
+
+  describe('markFailed', () => {
+    it('sets status to failed and stores the error message', async () => {
+      const commentId = await insertComment();
+      const created = await repository.create({
+        parentCommentId: commentId,
+        platform: 'twitter',
+        body: 'Thanks!',
+        idempotencyKey: 'key-1',
+      });
+
+      await repository.markFailed(created!.id, 'Simulated failure: not found');
+
+      const result = await repository.findById(created!.id);
+      expect(result!.status).toBe('failed');
+      expect(result!.lastError).toBe('Simulated failure: not found');
+    });
+  });
 });
