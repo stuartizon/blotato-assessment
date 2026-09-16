@@ -14,16 +14,25 @@ import { PublishedPostsRepository } from './repositories/published-posts.reposit
 import { CommentsRepository } from './repositories/comments.repository';
 import { STALENESS_THRESHOLD_MS } from './config/staleness-threshold.token';
 import { resolveStalenessThresholdMs } from './config/staleness-threshold';
+import { buildGoToSocialAdapter } from './config/gotosocial-adapter.factory';
 
-// 'twitter' has a real (mock) adapter; the rest are stubbed until built out
-// — see docs/adapter-interface.md and docs/ASSUMPTIONS.md.
-function buildAdapterMap(): AdapterMap {
+// 'twitter' has a real (mock) adapter; 'gotosocial' has a real adapter that
+// falls back to a stub when unconfigured (see buildGoToSocialAdapter); the
+// rest are stubbed until built out — see docs/adapter-interface.md and
+// docs/ASSUMPTIONS.md.
+function buildAdapterMap(configService: ConfigService): AdapterMap {
   const entries: [Platform, PlatformCommentAdapter][] = [
     ['twitter', new MockTwitterAdapter()],
     ['instagram', new NotImplementedAdapter('instagram')],
     ['linkedin', new NotImplementedAdapter('linkedin')],
     ['tiktok', new NotImplementedAdapter('tiktok')],
-    ['gotosocial', new NotImplementedAdapter('gotosocial')],
+    [
+      'gotosocial',
+      buildGoToSocialAdapter({
+        baseUrl: configService.get<string>('GTS_BASE_URL'),
+        accessToken: configService.get<string>('GTS_ACCESS_TOKEN'),
+      }),
+    ],
   ];
   return new Map(entries);
 }
@@ -31,7 +40,11 @@ function buildAdapterMap(): AdapterMap {
 @Module({
   controllers: [CommentsController],
   providers: [
-    { provide: ADAPTER_MAP, useFactory: buildAdapterMap },
+    {
+      provide: ADAPTER_MAP,
+      inject: [ConfigService],
+      useFactory: buildAdapterMap,
+    },
     CommentAdapterRegistry,
     PublishedPostsRepository,
     CommentsRepository,

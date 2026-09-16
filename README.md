@@ -75,6 +75,14 @@ The script is safe to re-run — it reuses the account (and its saved
 credentials, in the gitignored `.gotosocial-setup-credentials`) if one
 already exists, rather than failing.
 
+With `GTS_ACCESS_TOKEN` set (in `.env`, or exported in your shell),
+`CommentsModule` registers the real `GoToSocialAdapter` instead of its
+`NotImplementedAdapter` stub, and `npm run test:live:gotosocial` runs a
+smoke test against the real running instance — fetching real comments,
+posting a real reply, and confirming an edited status is picked up on the
+next sync. It's skipped (not failed) when `GTS_ACCESS_TOKEN` is unset, and
+is never part of `npm test` or CI.
+
 Other scripts: `npm test`, `npm run lint`, `npm run format`, `npm run build`.
 Migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate)
 (plain SQL up/down in `migrations/`, matching `docs/schema.md` directly — no
