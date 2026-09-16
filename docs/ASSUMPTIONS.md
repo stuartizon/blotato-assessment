@@ -210,23 +210,34 @@ rejected.
   thing living in the project's own Postgres instance. GoToSocial's
   SQLite file lives in its own Docker volume.
 - **`docker compose up -d` alone brings up GoToSocial pre-seeded with
-  sample posts and comments** — no manual step needed to have real content
-  to explore. Two one-shot services handle it:
+  sample posts and comments, from two different accounts** — no manual
+  step needed to have real content to explore, and the content itself
+  models this project's actual premise: `blotato_seed` (the "business")
+  posts, `blotato_commenter` (someone else) comments on those posts, and
+  the app — a third, separate account provisioned via
+  `scripts/setup-gotosocial.sh` — replies automatically. Using two
+  accounts instead of one self-replying account matters for the demo (see
+  `npm run demo:reply` below): replying to your own comments isn't what
+  this system is for. Two one-shot services handle the seeding:
   `gotosocial-account-init` (same image + storage volume as `gotosocial`,
-  runs `admin account create` for a seed account, tolerating "already
+  runs `admin account create` for both accounts, tolerating "already
   exists" on repeat runs) and `gotosocial-seed` (a small `curlimages/curl`
-  container that posts a few sample statuses/replies through GoToSocial's
-  real HTTP API as that account). This corrects an earlier version of this
-  document, which assumed GoToSocial's OAuth flow "requires opening an
-  authorize URL in a browser" and "there's no way to fully script this" —
-  in fact the whole flow (sign in, authorize, exchange) is just a sequence
-  of HTTP requests a browser happens to make; scripting it with `curl`
-  works fine and needs no browser automation or bypassed consent step, it
-  just hadn't been tried. `gotosocial-seed` is idempotent by checking the
-  seed account's own `statuses_count` via the API (not a marker file —
-  `curlimages/curl`'s default user doesn't own the `gotosocial-data`
-  volume, which is fine since checking real state is more robust than a
-  side-channel marker anyway), so repeat `docker compose up` runs don't
+  container that signs in as each account in turn and posts through
+  GoToSocial's real HTTP API — one registered OAuth app, reused across
+  both sign-ins, since apps and user accounts are independent). This
+  corrects an earlier version of this document, which assumed GoToSocial's
+  OAuth flow "requires opening an authorize URL in a browser" and "there's
+  no way to fully script this" — in fact the whole flow (sign in,
+  authorize, exchange) is just a sequence of HTTP requests a browser
+  happens to make; scripting it with `curl` works fine and needs no
+  browser automation or bypassed consent step, it just hadn't been tried.
+  `gotosocial-seed` is idempotent by checking the poster account's own
+  `statuses_count` via the API (not a marker file — `curlimages/curl`'s
+  default user doesn't own the `gotosocial-data` volume, which is fine
+  since checking real state is more robust than a side-channel marker
+  anyway — and the poster only ever posts top-level statuses, never
+  comments, so its own count is an accurate signal regardless of what the
+  commenter account has done), so repeat `docker compose up` runs don't
   pile up duplicate posts.
 - **`gotosocial-seed` threads its session cookie through manually instead
   of using curl's cookie jar.** GoToSocial scopes its session cookie to

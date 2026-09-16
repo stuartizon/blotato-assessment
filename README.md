@@ -43,13 +43,14 @@ npm run start:dev          # http://localhost:3000/health
 ```
 
 `docker compose up -d` also starts a [GoToSocial](https://docs.gotosocial.org)
-instance on `localhost:8080`, automatically seeded with a few sample posts
-and comments — no manual steps needed to have real content to explore. It's
-a real, self-hosted, Mastodon-API-compatible platform used to exercise
-`GoToSocialAdapter` against genuine HTTP calls rather than mocks — see "Real
-platform integration: GoToSocial" in `docs/ASSUMPTIONS.md`. Its data
-(SQLite) lives in its own `gotosocial-data` Docker volume, fully separate
-from the project's own Postgres.
+instance on `localhost:8080`, automatically seeded with sample posts (by a
+`blotato_seed` account) and comments on them (by a separate
+`blotato_commenter` account) — no manual steps needed to have real content
+to explore. It's a real, self-hosted, Mastodon-API-compatible platform used
+to exercise `GoToSocialAdapter` against genuine HTTP calls rather than
+mocks — see "Real platform integration: GoToSocial" in
+`docs/ASSUMPTIONS.md`. Its data (SQLite) lives in its own `gotosocial-data`
+Docker volume, fully separate from the project's own Postgres.
 
 ### Testing against a real platform (optional)
 
@@ -103,14 +104,17 @@ npm run start:dev          # in one terminal
 npm run demo:reply         # in another
 ```
 
-It finds one of the auto-seeded GoToSocial posts that has real comments on
-it, registers it as a `published_posts` row (standing in for the post-
-management system this repo assumes exists elsewhere), calls
-`GET /posts/:postId/comments` (a real sync via `GoToSocialAdapter`), replies
-to one of the returned comments via `POST /comments/:commentId/replies`,
-polls `GET /reply-jobs/:jobId` until the pg-boss worker has posted it, and
-prints a link to see the real reply live on GoToSocial. Safe to re-run —
-each run just replies one level deeper into the same thread.
+The auto-seeded GoToSocial content models this project's actual premise:
+`blotato_seed` (the "business") posts, `blotato_commenter` (someone else)
+comments on those posts, and the app — a third, separate account —
+auto-replies. The demo script walks every seeded post, registers each as a
+`published_posts` row (standing in for the post-management system this
+repo assumes exists elsewhere), calls `GET /posts/:postId/comments` (a real
+sync via `GoToSocialAdapter`) to find every comment not authored by us,
+replies to each via `POST /comments/:commentId/replies`, polls
+`GET /reply-jobs/:jobId` until the pg-boss worker has posted it, and prints
+a link to see the real replies live on GoToSocial. Safe to re-run — it
+skips any comment it's already answered, so a second run does nothing.
 
 Other scripts: `npm test`, `npm run lint`, `npm run format`, `npm run build`.
 Migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate)

@@ -1,16 +1,18 @@
 #!/bin/sh
 # Runs inside curlimages/curl (see docker-compose.yml's gotosocial-seed
-# service) to seed the local GoToSocial instance with a few sample posts
-# and comments, so `docker compose up -d` alone gives you real content to
-# explore/test against — see "Real platform integration: GoToSocial" in
-# docs/ASSUMPTIONS.md.
+# service) to seed the local GoToSocial instance with sample posts and
+# comments from *two different accounts*, so `docker compose up -d` alone
+# gives you real content that models this project's actual premise: a
+# business posts (blotato_seed), someone else comments on it
+# (blotato_commenter), and the app replies automatically — see "Real
+# platform integration: GoToSocial" in docs/ASSUMPTIONS.md.
 #
 # GoToSocial's OAuth flow turns out to be fully scriptable with plain HTTP
 # (sign in, authorize, exchange — no browser needed), which is what makes
 # this automatic. That's distinct from provisioning GTS_ACCESS_TOKEN for
 # *our own app* (scripts/setup-gotosocial.sh), which stays a deliberate,
-# separate manual step — this script's OAuth token is used once, here, and
-# discarded.
+# separate manual step — this script's OAuth tokens are used once, here,
+# and discarded.
 set -e
 
 APP_NAME="blotato-assessment-seed"
@@ -51,80 +53,90 @@ if [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ]; then
   exit 1
 fi
 
-AUTHORIZE_URL="$GTS_BASE_URL/oauth/authorize?client_id=$CLIENT_ID&redirect_uri=urn:ietf:wg:oauth:2.0:oob&response_type=code&scope=read%20write"
+# Signs in as $1/$2 (email/password) through the app registered above and
+# echoes an access token. The same OAuth app can authorize any number of
+# different user sessions — no need to register a separate app per account.
+get_access_token() {
+  email="$1"
+  password="$2"
+  authorize_url="$GTS_BASE_URL/oauth/authorize?client_id=$CLIENT_ID&redirect_uri=urn:ietf:wg:oauth:2.0:oob&response_type=code&scope=read%20write"
 
-echo "==> Signing in as the seed account..."
-COOKIE=$(curl -s -D - "$AUTHORIZE_URL" -o /dev/null | extract_cookie)
+  cookie=$(curl -s -D - "$authorize_url" -o /dev/null | extract_cookie)
 
-SIGNIN_HEADERS=$(curl -s -D - -X POST "$GTS_BASE_URL/auth/sign_in" \
-  -H "Cookie: $COOKIE" \
-  --data-urlencode "username=$GTS_SEED_EMAIL" \
-  --data-urlencode "password=$GTS_SEED_PASSWORD" -o /dev/null)
-NEW_COOKIE=$(echo "$SIGNIN_HEADERS" | extract_cookie)
-[ -n "$NEW_COOKIE" ] && COOKIE="$NEW_COOKIE"
+  signin_headers=$(curl -s -D - -X POST "$GTS_BASE_URL/auth/sign_in" \
+    -H "Cookie: $cookie" \
+    --data-urlencode "username=$email" \
+    --data-urlencode "password=$password" -o /dev/null)
+  new_cookie=$(echo "$signin_headers" | extract_cookie)
+  [ -n "$new_cookie" ] && cookie="$new_cookie"
 
-curl -s -H "Cookie: $COOKIE" "$GTS_BASE_URL/oauth/authorize" -o /dev/null
+  curl -s -H "Cookie: $cookie" "$GTS_BASE_URL/oauth/authorize" -o /dev/null
 
-echo "==> Authorizing the app..."
-CODE=$(curl -s -D - -X POST "$GTS_BASE_URL/oauth/authorize" -H "Cookie: $COOKIE" -o /dev/null \
-  | grep -i '^location' | sed -E 's/.*code=([A-Za-z0-9]+).*/\1/' | tr -d '\r')
-if [ -z "$CODE" ]; then
-  echo "Failed to obtain an authorization code (sign-in likely failed)." >&2
-  exit 1
-fi
+  code=$(curl -s -D - -X POST "$GTS_BASE_URL/oauth/authorize" -H "Cookie: $cookie" -o /dev/null \
+    | grep -i '^location' | sed -E 's/.*code=([A-Za-z0-9]+).*/\1/' | tr -d '\r')
+  if [ -z "$code" ]; then
+    echo "Failed to obtain an authorization code for $email (sign-in likely failed)." >&2
+    exit 1
+  fi
 
-echo "==> Exchanging the code for an access token..."
-TOKEN_JSON=$(curl -s -X POST "$GTS_BASE_URL/oauth/token" \
-  -H 'Content-Type: application/json' \
-  -d "{\"client_id\":\"$CLIENT_ID\",\"client_secret\":\"$CLIENT_SECRET\",\"redirect_uri\":\"urn:ietf:wg:oauth:2.0:oob\",\"grant_type\":\"authorization_code\",\"code\":\"$CODE\"}")
-ACCESS_TOKEN=$(echo "$TOKEN_JSON" | json_field access_token)
-if [ -z "$ACCESS_TOKEN" ]; then
-  echo "Failed to exchange code for a token: $TOKEN_JSON" >&2
-  exit 1
-fi
+  token_json=$(curl -s -X POST "$GTS_BASE_URL/oauth/token" \
+    -H 'Content-Type: application/json' \
+    -d "{\"client_id\":\"$CLIENT_ID\",\"client_secret\":\"$CLIENT_SECRET\",\"redirect_uri\":\"urn:ietf:wg:oauth:2.0:oob\",\"grant_type\":\"authorization_code\",\"code\":\"$code\"}")
+  token=$(echo "$token_json" | json_field access_token)
+  if [ -z "$token" ]; then
+    echo "Failed to exchange code for a token for $email: $token_json" >&2
+    exit 1
+  fi
+  echo "$token"
+}
 
-# Idempotency check: skip re-seeding if the seed account already has posts
-# from a previous `docker compose up` run, rather than piling up
-# duplicates. Checking the account's own state (not a marker file) also
-# sidesteps needing write access to the gotosocial-data volume, which this
-# container doesn't otherwise need and doesn't own (it's owned by
-# gotosocial's UID, not curl_user's).
+echo "==> Signing in as the poster account ($GTS_SEED_EMAIL)..."
+POSTER_TOKEN=$(get_access_token "$GTS_SEED_EMAIL" "$GTS_SEED_PASSWORD")
+
+# Idempotency check: the poster only ever posts top-level statuses (never
+# comments), so its own statuses_count is an accurate "have we already
+# seeded" signal — skip re-seeding if a previous `docker compose up` run
+# already did it, rather than piling up duplicates.
 EXISTING_STATUSES=$(curl -s "$GTS_BASE_URL/api/v1/accounts/verify_credentials" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" | json_number_field statuses_count)
+  -H "Authorization: Bearer $POSTER_TOKEN" | json_number_field statuses_count)
 if [ -n "$EXISTING_STATUSES" ] && [ "$EXISTING_STATUSES" -gt 0 ]; then
-  echo "Seed account already has $EXISTING_STATUSES status(es) — skipping re-seed."
+  echo "Poster account already has $EXISTING_STATUSES status(es) — skipping re-seed."
   exit 0
 fi
 
-# Posts $1, optionally in reply to $2, and prints the created status id.
+# Posts $2, optionally in reply to $3, as account token $1. Prints the
+# created status id.
 post_status() {
-  text="$1"
-  reply_to="$2"
+  token="$1"
+  text="$2"
+  reply_to="$3"
   if [ -n "$reply_to" ]; then
     curl -s -X POST "$GTS_BASE_URL/api/v1/statuses" \
-      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -H "Authorization: Bearer $token" \
       --data-urlencode "status=$text" \
       --data-urlencode "in_reply_to_id=$reply_to" \
       --data-urlencode "visibility=public" | json_field id
   else
     curl -s -X POST "$GTS_BASE_URL/api/v1/statuses" \
-      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -H "Authorization: Bearer $token" \
       --data-urlencode "status=$text" \
       --data-urlencode "visibility=public" | json_field id
   fi
 }
 
-echo "==> Posting seed content..."
+echo "==> Posting sample posts as the poster account..."
+POST1=$(post_status "$POSTER_TOKEN" "Just shipped the comment sync worker for the multi-platform comments API - replies now go out async via pg-boss.")
+POST2=$(post_status "$POSTER_TOKEN" "Anyone else self-hosting GoToSocial for local dev instead of mocking the whole platform API?")
+POST3=$(post_status "$POSTER_TOKEN" "TIL GoToSocial's OAuth flow is fully scriptable with curl - no browser step needed after all.")
 
-POST1=$(post_status "Just shipped the comment sync worker for the multi-platform comments API - replies now go out async via pg-boss.")
-REPLY1=$(post_status "Nice, how are you handling retries on platform 5xxs?" "$POST1")
-post_status "PlatformApiError.retryable = true means the worker lets pg-boss's backoff handle it." "$REPLY1" >/dev/null
+echo "==> Signing in as the commenter account ($GTS_COMMENTER_EMAIL)..."
+COMMENTER_TOKEN=$(get_access_token "$GTS_COMMENTER_EMAIL" "$GTS_COMMENTER_PASSWORD")
 
-POST2=$(post_status "Anyone else self-hosting GoToSocial for local dev instead of mocking the whole platform API?")
-post_status "Yep - real HTTP, real edit semantics, no app-review wait. Worth it." "$POST2" >/dev/null
-
-POST3=$(post_status "TIL GoToSocial's OAuth flow is fully scriptable with curl - no browser step needed after all.")
-post_status "Wait really? I thought that needed a manual step." "$POST3" >/dev/null
+echo "==> Posting sample comments as the commenter account..."
+post_status "$COMMENTER_TOKEN" "Nice, how are you handling retries on platform 5xxs?" "$POST1" >/dev/null
+post_status "$COMMENTER_TOKEN" "Also curious what happens if the platform is down for an extended period." "$POST1" >/dev/null
+post_status "$COMMENTER_TOKEN" "Yep - real HTTP, real edit semantics, no app-review wait. Worth it." "$POST2" >/dev/null
+post_status "$COMMENTER_TOKEN" "Wait really? I thought that needed a manual step." "$POST3" >/dev/null
 
 echo "==> Done seeding. Post ids (use as external_post_id for a test published_posts row):"
 echo "      $POST1"

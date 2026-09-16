@@ -17,9 +17,16 @@ x-gotosocial-env: &gotosocial-env
   GTS_WAZERO_COMPILATION_CACHE: /gotosocial/.cache
 
 x-gotosocial-seed-env: &gotosocial-seed-env
+  # Two accounts, not one — modeling this project's actual premise: a
+  # business posts (blotato_seed), someone else comments on it
+  # (blotato_commenter), and the app (a third, separate account
+  # provisioned by scripts/setup-gotosocial.sh) replies automatically.
   GTS_SEED_USERNAME: ${GTS_SEED_USERNAME:-blotato_seed}
   GTS_SEED_EMAIL: ${GTS_SEED_EMAIL:-blotato-seed@example.org}
   GTS_SEED_PASSWORD: ${GTS_SEED_PASSWORD:-BlotatoSeed_2026!}
+  GTS_COMMENTER_USERNAME: ${GTS_COMMENTER_USERNAME:-blotato_commenter}
+  GTS_COMMENTER_EMAIL: ${GTS_COMMENTER_EMAIL:-blotato-commenter@example.org}
+  GTS_COMMENTER_PASSWORD: ${GTS_COMMENTER_PASSWORD:-BlotatoCommenter_2026!}
 
 services:
   postgres:
@@ -54,10 +61,11 @@ services:
       retries: 12
       start_period: 5s
 
-  # One-shot: creates the account gotosocial-seed posts through. Uses the
-  # same image + storage volume as `gotosocial` (not `docker exec` into it)
-  # so it works the same way whether gotosocial was just started or was
-  # already running — see scripts/seed-gotosocial-account.sh.
+  # One-shot: creates the two accounts gotosocial-seed posts through (the
+  # poster and the commenter). Uses the same image + storage volume as
+  # `gotosocial` (not `docker exec` into it) so it works the same way
+  # whether gotosocial was just started or was already running — see
+  # scripts/seed-gotosocial-account.sh.
   gotosocial-account-init:
     image: docker.io/superseriousbusiness/gotosocial:latest
     environment:
@@ -70,10 +78,11 @@ services:
         condition: service_healthy
     entrypoint: ['/bin/sh', '/seed-account.sh']
 
-  # One-shot: posts sample statuses/replies through the seed account via
-  # GoToSocial's real HTTP API (see scripts/seed-gotosocial-data.sh). Skips
-  # itself once the seed account already has posts (checked via the API),
-  # so repeat `docker compose up` runs don't pile up duplicates.
+  # One-shot: posts sample posts (as blotato_seed) and comments on them
+  # (as blotato_commenter) via GoToSocial's real HTTP API — see
+  # scripts/seed-gotosocial-data.sh. Skips itself once the poster account
+  # already has posts (checked via the API), so repeat `docker compose up`
+  # runs don't pile up duplicates.
   gotosocial-seed:
     image: curlimages/curl:8.11.1
     environment:
