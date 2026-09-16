@@ -3,12 +3,22 @@ import {
   ReplyJobsRepository,
   ReplyJobStatus,
 } from './repositories/reply-jobs.repository';
-import { CommentsRepository } from '../comments/repositories/comments.repository';
+import {
+  CommentResultSummary,
+  CommentsRepository,
+} from '../comments/repositories/comments.repository';
 import { ReplyJobsQueueService } from './queue/reply-jobs-queue.service';
 
 export interface CreateReplyResult {
   jobId: string;
   status: ReplyJobStatus;
+}
+
+export interface ReplyJobStatusResult {
+  jobId: string;
+  status: ReplyJobStatus;
+  resultComment?: CommentResultSummary;
+  lastError?: string;
 }
 
 @Injectable()
@@ -50,5 +60,26 @@ export class ReplyJobsService {
 
     await this.queue.enqueueReply(created.id);
     return { jobId: created.id, status: created.status };
+  }
+
+  async getStatus(jobId: string): Promise<ReplyJobStatusResult> {
+    const job = await this.replyJobs.findById(jobId);
+    if (!job) {
+      throw new NotFoundException(`No reply job found with id ${jobId}`);
+    }
+
+    const result: ReplyJobStatusResult = { jobId: job.id, status: job.status };
+
+    if (job.status === 'sent' && job.resultCommentId) {
+      // result_comment_id is only ever set once the comment has been
+      // upserted (see ReplyJobsWorker), so the row is guaranteed to exist.
+      result.resultComment = (await this.comments.findResultComment(
+        job.resultCommentId,
+      ))!;
+    } else if (job.status === 'failed' && job.lastError) {
+      result.lastError = job.lastError;
+    }
+
+    return result;
   }
 }

@@ -203,6 +203,39 @@ describe('CommentsRepository', () => {
     });
   });
 
+  describe('findResultComment', () => {
+    it('returns null when no comment exists with that id', async () => {
+      const result = await repository.findResultComment(
+        '00000000-0000-0000-0000-000000000000',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('returns the id, body, and postedAt for the comment', async () => {
+      const postId = await insertPost();
+      await repository.upsertMany('twitter', postId, [
+        comment({
+          externalCommentId: 'c1',
+          body: 'Thanks for your comment!',
+          postedAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ]);
+      const row = await pool.query(
+        `SELECT id FROM comments WHERE external_comment_id = 'c1'`,
+      );
+      const commentId = row.rows[0].id as string;
+
+      const result = await repository.findResultComment(commentId);
+
+      expect(result).toEqual({
+        id: commentId,
+        body: 'Thanks for your comment!',
+        postedAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+    });
+  });
+
   describe('upsertReply', () => {
     it('inserts the reply under the given parent, without needing to resolve it by external id', async () => {
       const postId = await insertPost();

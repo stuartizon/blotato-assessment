@@ -1,6 +1,9 @@
 import { NotFoundException } from '@nestjs/common';
 import { ReplyJobsService } from './reply-jobs.service';
-import { ReplyJobsRepository } from './repositories/reply-jobs.repository';
+import {
+  ReplyJobsRepository,
+  ReplyJobRecord,
+} from './repositories/reply-jobs.repository';
 import { CommentsRepository } from '../comments/repositories/comments.repository';
 import { ReplyJobsQueueService } from './queue/reply-jobs-queue.service';
 
@@ -34,10 +37,12 @@ describe('ReplyJobsService', () => {
     replyJobs = {
       findByIdempotencyKey: jest.fn(),
       create: jest.fn(),
+      findById: jest.fn(),
     } as unknown as jest.Mocked<ReplyJobsRepository>;
 
     comments = {
       findById: jest.fn(),
+      findResultComment: jest.fn(),
     } as unknown as jest.Mocked<CommentsRepository>;
 
     queue = {
@@ -96,5 +101,70 @@ describe('ReplyJobsService', () => {
 
     expect(queue.enqueueReply).not.toHaveBeenCalled();
     expect(result).toEqual({ jobId: 'job-1', status: 'pending' });
+  });
+
+  describe('getStatus', () => {
+    function job(overrides: Partial<ReplyJobRecord>): ReplyJobRecord {
+      return { ...existingJob, ...overrides };
+    }
+
+    it('throws NotFoundException when no job exists with that id', async () => {
+      replyJobs.findById.mockResolvedValue(null);
+
+      await expect(service.getStatus('missing')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(comments.findResultComment).not.toHaveBeenCalled();
+    });
+
+    it('returns jobId and status without a resultComment when pending', async () => {
+      replyJobs.findById.mockResolvedValue(job({ status: 'pending' }));
+
+      const result = await service.getStatus('job-1');
+
+      expect(result).toEqual({ jobId: 'job-1', status: 'pending' });
+      expect(comments.findResultComment).not.toHaveBeenCalled();
+    });
+
+    it('includes lastError when the job failed', async () => {
+      replyJobs.findById.mockResolvedValue(
+        job({ status: 'failed', lastError: 'platform rejected the reply' }),
+      );
+
+      const result = await service.getStatus('job-1');
+
+      expect(result).toEqual({
+        jobId: 'job-1',
+        status: 'failed',
+        lastError: 'platform rejected the reply',
+      });
+    });
+
+    it('includes the resultComment once the job has sent', async () => {
+      const postedAt = new Date('2026-01-01T00:00:00.000Z');
+      replyJobs.findById.mockResolvedValue(
+        job({ status: 'sent', resultCommentId: 'result-comment-1' }),
+      );
+      comments.findResultComment.mockResolvedValue({
+        id: 'result-comment-1',
+        body: 'Thanks for your comment!',
+        postedAt,
+      });
+
+      const result = await service.getStatus('job-1');
+
+      expect(comments.findResultComment).toHaveBeenCalledWith(
+        'result-comment-1',
+      );
+      expect(result).toEqual({
+        jobId: 'job-1',
+        status: 'sent',
+        resultComment: {
+          id: 'result-comment-1',
+          body: 'Thanks for your comment!',
+          postedAt,
+        },
+      });
+    });
   });
 });

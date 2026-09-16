@@ -21,6 +21,12 @@ export interface CommentRecord {
   externalCommentId: string;
 }
 
+export interface CommentResultSummary {
+  id: string;
+  body: string;
+  postedAt: Date | null;
+}
+
 // Just enough of Pool/PoolClient's shared shape to run a query — lets
 // upsertOne run either inside upsertMany's transaction or standalone (see
 // upsertReply) without duplicating the upsert SQL.
@@ -47,6 +53,24 @@ export class CommentsRepository {
       platform: row.platform,
       externalCommentId: row.external_comment_id,
     };
+  }
+
+  /**
+   * The subset of a comment's fields needed for a reply job's
+   * `resultComment` once the reply has been sent and re-ingested.
+   */
+  async findResultComment(id: string): Promise<CommentResultSummary | null> {
+    const result = await this.pool.query(
+      `SELECT id, body, posted_at FROM comments WHERE id = $1`,
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    const row = result.rows[0];
+    return { id: row.id, body: row.body, postedAt: row.posted_at };
   }
 
   /**

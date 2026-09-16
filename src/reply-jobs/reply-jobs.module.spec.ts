@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { ReplyJobsModule } from './reply-jobs.module';
 import { ReplyJobsService } from './reply-jobs.service';
 import { ReplyJobsController } from './reply-jobs.controller';
+import { ReplyJobStatusController } from './reply-job-status.controller';
 import { ReplyJobsWorker } from './reply-jobs.worker';
 import { DatabaseModule } from '../database/database.module';
 import { PG_BOSS } from '../queue/pg-boss.token';
@@ -25,7 +26,7 @@ import { PG_BOSS } from '../queue/pg-boss.token';
 class FakeQueueModule {}
 
 describe('ReplyJobsModule', () => {
-  it('resolves ReplyJobsService, ReplyJobsController, and ReplyJobsWorker', async () => {
+  it('resolves ReplyJobsService, ReplyJobsController, ReplyJobStatusController, and ReplyJobsWorker', async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true }),
@@ -38,6 +39,9 @@ describe('ReplyJobsModule', () => {
     expect(moduleRef.get(ReplyJobsService)).toBeInstanceOf(ReplyJobsService);
     expect(moduleRef.get(ReplyJobsController)).toBeInstanceOf(
       ReplyJobsController,
+    );
+    expect(moduleRef.get(ReplyJobStatusController)).toBeInstanceOf(
+      ReplyJobStatusController,
     );
     expect(moduleRef.get(ReplyJobsWorker)).toBeInstanceOf(ReplyJobsWorker);
   });
