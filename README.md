@@ -89,6 +89,29 @@ posting a real reply, and confirming an edited status is picked up on the
 next sync. It's skipped (not failed) when `GTS_ACCESS_TOKEN` is unset, and
 is never part of `npm test` or CI.
 
+### Demoing the reply flow
+
+There's no frontend in this repo (see `CLAUDE.md`), but `npm run demo:reply`
+shows the full reply-to-comment flow working end to end, purely through the
+REST API documented in `docs/api-endpoints.md` — against real data, not
+mocks:
+
+```bash
+docker compose up -d       # GoToSocial comes up pre-seeded with posts/comments
+scripts/setup-gotosocial.sh && add the printed GTS_ACCESS_TOKEN to .env
+npm run start:dev          # in one terminal
+npm run demo:reply         # in another
+```
+
+It finds one of the auto-seeded GoToSocial posts that has real comments on
+it, registers it as a `published_posts` row (standing in for the post-
+management system this repo assumes exists elsewhere), calls
+`GET /posts/:postId/comments` (a real sync via `GoToSocialAdapter`), replies
+to one of the returned comments via `POST /comments/:commentId/replies`,
+polls `GET /reply-jobs/:jobId` until the pg-boss worker has posted it, and
+prints a link to see the real reply live on GoToSocial. Safe to re-run —
+each run just replies one level deeper into the same thread.
+
 Other scripts: `npm test`, `npm run lint`, `npm run format`, `npm run build`.
 Migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate)
 (plain SQL up/down in `migrations/`, matching `docs/schema.md` directly — no

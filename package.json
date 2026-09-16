@@ -18,6 +18,7 @@
     "test:cov": "jest --coverage",
     "test:integration": "jest --config jest.integration.config.js",
     "test:live:gotosocial": "jest --config jest.live.config.js",
+    "demo:reply": "ts-node scripts/demo-reply-flow.ts",
     "migrate": "node-pg-migrate --envPath .env up",
     "migrate:down": "node-pg-migrate --envPath .env down",
     "migrate:create": "node-pg-migrate create",

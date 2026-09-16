@@ -9,6 +9,9 @@ rejected.
 - **Backend only.** The brief references a database schema, API design,
   and REST endpoints, with no mention of UI, components, or rendering.
   Treated as a backend-only exercise; no frontend/UI work is in scope.
+  `npm run demo:reply` (`scripts/demo-reply-flow.ts`) demonstrates the full
+  reply-to-comment flow end to end against real GoToSocial data without one
+  — real HTTP calls to the documented REST API, not a UI standing in for it.
 - **No `GET /posts` listing endpoint.** Post management/scheduling is
   assumed to already exist elsewhere in the product (this is, after all, a
   feature being added to an existing social media scheduling API). Only
