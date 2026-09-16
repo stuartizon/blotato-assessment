@@ -19,7 +19,7 @@ interface CanonicalComment {
 }
 
 interface FetchCommentsOptions {
-  since?: Date; // used for incremental sync — fetch comments created OR edited since this time
+  since?: Date; // used for incremental sync: fetch comments created OR edited since this time
 }
 
 // ---- The adapter contract ----
@@ -29,18 +29,18 @@ interface PlatformCommentAdapter {
 
   /**
    * Fetches all comments for a post. Adapters own pagination internally
-   * (cursors, tokens, offsets — whatever the platform requires) and
+   * (cursors, tokens, offsets, whatever the platform requires) and
    * normalize the platform's actual threading behavior (e.g. flattening
    * deep reply chains) into CanonicalComment's parent/child shape.
    * Pagination mechanics are never exposed on this interface.
    *
    * `since`, when provided, must include comments created OR edited after
-   * that time — not only newly-created ones. A caller doing incremental
+   * that time, not only newly-created ones. A caller doing incremental
    * sync re-uses its last sync time as `since` on every call (see
    * CommentsService), so a comment that stops being "new" would otherwise
    * never be checked for edits again. How an adapter determines "edited
    * since" is platform-specific and internal to it (e.g. a platform's own
-   * last-modified timestamp on the comment) — see ASSUMPTIONS.md.
+   * last-modified timestamp on the comment); see ASSUMPTIONS.md.
    */
   fetchComments(
     externalPostId: string,
@@ -50,7 +50,7 @@ interface PlatformCommentAdapter {
   /**
    * Posts a reply to a comment on the platform. Throws PlatformApiError
    * (see error-shape.md) on failure. This method is synchronous from the
-   * adapter's point of view — it knows nothing about jobs, queues, or
+   * adapter's point of view; it knows nothing about jobs, queues, or
    * retries; that's the worker's responsibility, layered on top.
    */
   postReply(
@@ -65,7 +65,7 @@ interface PlatformCommentAdapter {
 // hand-rolled class: each adapter is registered as a provider under an
 // injection token keyed by platform (e.g. `ADAPTER_TWITTER`), and a small
 // factory/service resolves the right adapter for a given `Platform` value
-// at runtime — for example:
+// at runtime, for example:
 
 @Injectable()
 class CommentAdapterRegistry {
@@ -90,24 +90,24 @@ class CommentAdapterRegistry {
 - **`raw: unknown`, not a typed/constrained shape.** We don't and can't
   know a given platform's payload shape at the type level; it's opaque to
   everything except the adapter that produced it. Consuming code should
-  never read from `raw` — it exists purely for forward-compatibility and
+  never read from `raw`; it exists purely for forward-compatibility and
   debugging.
 - **`externalParentCommentId` is resolved to an internal UUID by the
   service layer, not the adapter.** The adapter should never need to know
-  about our internal database IDs — it speaks the platform's language in
+  about our internal database IDs; it speaks the platform's language in
   and out, and nothing else. Resolution happens via the
   `(platform, external_comment_id)` unique constraint.
 - **`since` means "created or updated since," not just "created since."**
   An earlier version of this contract only covered new comments, which
-  made edit-detection unreachable in practice — see ASSUMPTIONS.md,
+  made edit-detection unreachable in practice; see ASSUMPTIONS.md,
   "`since` means 'created or updated since'" for the full story of why
   this changed.
 - **No cursor/pagination parameter on `fetchComments`.** No caller in this
-  system ever needs a single page — the service layer always wants
+  system ever needs a single page; the service layer always wants
   "everything" (or "everything since X"). Pagination is entirely an
   adapter-internal concern. See `ASSUMPTIONS.md` for the volume/latency
   caveat this implies.
 - **`postReply` returns a `CanonicalComment`, not a job or status.** Keeps
-  the adapter boundary narrow and independently testable — mock the
+  the adapter boundary narrow and independently testable: mock the
   platform call, assert the mapping to `CanonicalComment`, with no queue
   concerns involved.

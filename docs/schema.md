@@ -62,7 +62,7 @@ CREATE UNIQUE INDEX idx_reply_jobs_idempotency ON reply_jobs(idempotency_key);
 ## Rationale
 
 - **`platform` as an enum**: platforms are added by deploy/migration, not by
-  end users — see `ASSUMPTIONS.md` for the tradeoff against a lookup table.
+  end users; see `ASSUMPTIONS.md` for the tradeoff against a lookup table.
 - **`platform` denormalized onto `comments`**, even though derivable via
   `post_id → published_posts.platform`. Pure query-convenience/indexing
   tradeoff; kept in sync only because a post never changes platform after
@@ -73,9 +73,10 @@ CREATE UNIQUE INDEX idx_reply_jobs_idempotency ON reply_jobs(idempotency_key);
 - **`(platform, external_comment_id)` unique**: needed both for dedup on
   sync (upsert target) and because posting a reply requires the platform's
   native comment ID, not our internal UUID.
-- **`raw_payload JSONB NOT NULL`**: forward-compatibility/debugging insurance
-  — platform APIs change under us; keeping the raw response means we're not
-  limited to only the fields we thought to normalize at write time.
+- **`raw_payload JSONB NOT NULL`**: forward-compatibility/debugging
+  insurance. Platform APIs change under us; keeping the raw response means
+  we're not limited to only the fields we thought to normalize at write
+  time.
 - **`last_synced_at` on `published_posts`, not derived from the newest
   comment's `fetched_at`**: correct even when a post has zero comments so
   far (a post with no comments yet still needs a defined "last checked"
@@ -83,15 +84,15 @@ CREATE UNIQUE INDEX idx_reply_jobs_idempotency ON reply_jobs(idempotency_key);
 - **`reply_jobs` decoupled from `comments`**: a pending reply isn't a
   comment yet. It only becomes one (`result_comment_id` set) once the
   platform confirms it and it's re-ingested through the normal comment
-  path — this preserves the "platform authoritative for writes" principle.
+  path; this preserves the "platform authoritative for writes" principle.
 - **`idempotency_key` is client-supplied** (via an `Idempotency-Key`
   request header on the create-reply endpoint), not server-generated. A
   server-generated key would be unique per row by construction and
-  therefore useless for detecting duplicate *client* requests — see
+  therefore useless for detecting duplicate *client* requests; see
   `ASSUMPTIONS.md`.
 - **No `attempt_count`/backoff columns**: retry mechanics are owned by
   pg-boss, not tracked redundantly in the database. `reply_jobs.status`
   reflects current state only.
-- **`deleted_at` present, but no deletion logic**: see `ASSUMPTIONS.md` —
+- **`deleted_at` present, but no deletion logic**: see `ASSUMPTIONS.md`;
   included to avoid a future foreign-key/cascade design problem, without
   committing to deletion semantics that weren't specified.

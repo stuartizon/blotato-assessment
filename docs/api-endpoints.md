@@ -5,13 +5,13 @@ reply lifecycle. See `ASSUMPTIONS.md` for what's deliberately excluded (post
 listing, `includeDeleted`, a computed reply-status field).
 
 There's also an operational `GET /health` (returns `{ "status": "ok" }`),
-added as part of the initial NestJS scaffold — a liveness probe for the
+added as part of the initial NestJS scaffold: a liveness probe for the
 process itself, not part of this document's business API surface, so it
 carries no request/response contract beyond that.
 
 ## `GET /posts/:postId/comments`
 
-`:postId` is the internal `published_posts.id` (UUID) — the id the wider
+`:postId` is the internal `published_posts.id` (UUID), the id the wider
 product's post-management system already has from when the post was
 published, not the platform's own id. A single path param can't
 disambiguate a platform-native id (`published_posts` is only unique per
@@ -20,15 +20,15 @@ without an extra query param.
 
 Returns the comment tree for a post. If `published_posts.last_synced_at`
 is `NULL` or older than the configured staleness threshold
-(`STALENESS_THRESHOLD_MS` env var, default 15 minutes — see
+(`STALENESS_THRESHOLD_MS` env var, default 15 minutes; see
 `docs/ASSUMPTIONS.md`), triggers a fetch via the relevant
 `PlatformCommentAdapter`, upserts the results, and updates
 `last_synced_at` before responding. Otherwise serves directly from the
 database. Returns `404` if no post exists with that id.
 
-**Response** — comments nested by `parent_comment_id`; a comment's own
+**Response**: comments nested by `parent_comment_id`; a comment's own
 replies are returned as a `replies` array (arbitrary depth). Whether a
-comment has been replied to is derivable from `replies.length > 0` — no
+comment has been replied to is derivable from `replies.length > 0`, no
 separate status field.
 
 ```json
@@ -51,7 +51,7 @@ separate status field.
 ## `POST /comments/:commentId/replies`
 
 Creates a reply job. Requires an `Idempotency-Key` header (client-supplied,
-UUID or similar) — a repeated request with the same key returns the
+UUID or similar); a repeated request with the same key returns the
 existing job rather than creating a duplicate (see `ASSUMPTIONS.md`).
 
 **Request body**
@@ -59,7 +59,7 @@ existing job rather than creating a duplicate (see `ASSUMPTIONS.md`).
 { "body": "Thanks for your comment!" }
 ```
 
-**Response — `202 Accepted`**
+**Response (`202 Accepted`)**
 ```json
 {
   "jobId": "…",

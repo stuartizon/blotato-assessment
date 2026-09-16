@@ -6,11 +6,11 @@ platform-specific error formats itself.
 ```typescript
 type PlatformErrorKind =
   | 'rate_limited'      // back off and retry, possibly with a hint
-  | 'transient'         // network blip, 5xx, etc — safe to retry
-  | 'not_found'         // parent comment/post no longer exists — don't retry
-  | 'permission_denied' // e.g. comments disabled, blocked — don't retry
-  | 'invalid_request'   // malformed input — don't retry, likely a bug
-  | 'unknown';          // unrecognized — treat conservatively (don't retry)
+  | 'transient'         // network blip, 5xx, etc: safe to retry
+  | 'not_found'         // parent comment/post no longer exists: don't retry
+  | 'permission_denied' // e.g. comments disabled, blocked: don't retry
+  | 'invalid_request'   // malformed input: don't retry, likely a bug
+  | 'unknown';          // unrecognized: treat conservatively (don't retry)
 
 class PlatformApiError extends Error {
   constructor(
@@ -31,11 +31,11 @@ class PlatformApiError extends Error {
 
 - **The adapter classifies.** Each adapter catches whatever its platform's
   SDK/HTTP client throws and re-throws as a `PlatformApiError` with the
-  appropriate `kind`/`retryable` values — e.g. a 429 maps to
+  appropriate `kind`/`retryable` values, e.g. a 429 maps to
   `kind: 'rate_limited', retryable: true, retryAfterMs: <from header>`; a
   404 on the parent comment maps to `kind: 'not_found', retryable: false`.
 - **The worker decides.** It doesn't inspect platform-specific error
-  details — it only reads `retryable` (and optionally `retryAfterMs`) to
+  details; it only reads `retryable` (and optionally `retryAfterMs`) to
   decide whether to let pg-boss retry the job or mark it permanently
   failed:
 
@@ -52,6 +52,6 @@ try {
 ```
 
 This is a deliberate, narrow exception to "the adapter knows nothing about
-jobs/queues" — classifying an error (transient vs. permanent) is
+jobs/queues": classifying an error (transient vs. permanent) is
 fundamentally platform knowledge, even though acting on that classification
 is not. The adapter reports facts; the worker makes decisions.
