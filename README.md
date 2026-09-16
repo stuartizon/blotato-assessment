@@ -42,6 +42,16 @@ npm run migrate            # creates published_posts, comments, reply_jobs
 npm run start:dev          # http://localhost:3000/health
 ```
 
+`docker compose up -d` also starts a [GoToSocial](https://docs.gotosocial.org)
+instance on `localhost:8080`, unconfigured and with no manual steps needed to
+reach a running server. It's a real, self-hosted, Mastodon-API-compatible
+platform used to exercise `GoToSocialAdapter` against genuine HTTP calls
+rather than mocks — see "Real platform integration: GoToSocial" in
+`docs/ASSUMPTIONS.md`. Its data (SQLite) lives in its own `gotosocial-data`
+Docker volume, fully separate from the project's own Postgres. Provisioning
+a test account and access token is a separate one-time step, documented
+where that tooling lands (see the linked assumptions section).
+
 Other scripts: `npm test`, `npm run lint`, `npm run format`, `npm run build`.
 Migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate)
 (plain SQL up/down in `migrations/`, matching `docs/schema.md` directly — no

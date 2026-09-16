@@ -10,5 +10,25 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
+  # Real, self-hosted, Mastodon-API-compatible platform used to exercise
+  # GoToSocialAdapter against genuine HTTP calls. Fully unconfigured out of
+  # the box: brings up a running instance with no manual steps. Account +
+  # access-token provisioning is a separate one-time step — see
+  # scripts/setup-gotosocial.sh and docs/ASSUMPTIONS.md.
+  gotosocial:
+    image: docker.io/superseriousbusiness/gotosocial:latest
+    environment:
+      GTS_HOST: localhost
+      GTS_PROTOCOL: http
+      GTS_DB_TYPE: sqlite
+      GTS_DB_ADDRESS: /gotosocial/storage/sqlite.db
+      GTS_LETSENCRYPT_ENABLED: 'false'
+      GTS_WAZERO_COMPILATION_CACHE: /gotosocial/.cache
+    ports:
+      - '8080:8080'
+    volumes:
+      - gotosocial-data:/gotosocial/storage
+
 volumes:
   postgres-data:
+  gotosocial-data:
