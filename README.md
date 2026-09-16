@@ -54,8 +54,7 @@ Requires Node 20+ and Docker.
 npm install
 cp .env.example .env         # defaults already match docker-compose.yml
 docker compose up -d         # starts Postgres, and GoToSocial pre-seeded with posts/comments
-npm run migrate              # creates published_posts, comments, reply_jobs
-npm run start:dev            # starts the API on http://localhost:3000
+npm run migrate              # creates the published_posts/comments/reply_jobs tables
 ```
 
 Open [http://localhost:8080/@blotato_seed](http://localhost:8080/@blotato_seed)
@@ -66,7 +65,8 @@ Then, to see the reply flow work end to end through the real REST API:
 
 ```bash
 scripts/setup-gotosocial.sh   # one-time: provisions the app's own account + access token
-                               # → add the printed GTS_ACCESS_TOKEN to .env, then restart start:dev
+                               # → add the printed GTS_ACCESS_TOKEN to .env
+npm run start:dev             # starts the API on http://localhost:3000
 npm run demo:reply            # replies to every seeded comment via the API
 ```
 
