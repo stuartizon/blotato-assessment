@@ -1,4 +1,5 @@
-export type Platform = 'twitter' | 'instagram' | 'linkedin' | 'tiktok';
+export type Platform =
+  'twitter' | 'instagram' | 'linkedin' | 'tiktok' | 'gotosocial';
 
 export interface CanonicalComment {
   externalCommentId: string;

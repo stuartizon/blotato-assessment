@@ -4,7 +4,7 @@ The mechanism that satisfies "support multiple platforms, more in future"
 without schema or core-logic changes per new platform.
 
 ```typescript
-type Platform = 'twitter' | 'instagram' | 'linkedin' | 'tiktok';
+type Platform = 'twitter' | 'instagram' | 'linkedin' | 'tiktok' | 'gotosocial';
 
 // ---- Canonical domain types ----
 

@@ -23,6 +23,7 @@ function buildAdapterMap(): AdapterMap {
     ['instagram', new NotImplementedAdapter('instagram')],
     ['linkedin', new NotImplementedAdapter('linkedin')],
     ['tiktok', new NotImplementedAdapter('tiktok')],
+    ['gotosocial', new NotImplementedAdapter('gotosocial')],
   ];
   return new Map(entries);
 }

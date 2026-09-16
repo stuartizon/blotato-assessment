@@ -3,7 +3,7 @@
 Postgres. Three tables: `published_posts`, `comments`, `reply_jobs`.
 
 ```sql
-CREATE TYPE platform AS ENUM ('twitter', 'instagram', 'linkedin', 'tiktok');
+CREATE TYPE platform AS ENUM ('twitter', 'instagram', 'linkedin', 'tiktok', 'gotosocial');
 
 -- One row per post you've published, per platform.
 CREATE TABLE published_posts (

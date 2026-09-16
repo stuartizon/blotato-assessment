@@ -25,6 +25,7 @@ describe('CommentsModule', () => {
     expect(registry.get('instagram')).toBeInstanceOf(NotImplementedAdapter);
     expect(registry.get('linkedin')).toBeInstanceOf(NotImplementedAdapter);
     expect(registry.get('tiktok')).toBeInstanceOf(NotImplementedAdapter);
+    expect(registry.get('gotosocial')).toBeInstanceOf(NotImplementedAdapter);
   });
 
   it('resolves CommentsService with the default staleness threshold when unset', async () => {
