@@ -182,6 +182,63 @@ rejected.
   to use a different mechanism if one better fits their simulated shape —
   this isn't part of the `PlatformCommentAdapter` contract.
 
+## Real platform integration: GoToSocial
+
+- **Why GoToSocial.** The mock adapter satisfies the brief and is what the
+  core design was validated against, but a real, self-hosted, Mastodon-API-
+  compatible instance lets the `PlatformCommentAdapter` abstraction (and
+  the edit-detection fix — see "Sync model" above) be demonstrated against
+  genuine HTTP calls and genuine platform behavior, not just simulated
+  data, without the paid-tier/app-review blockers that rule out
+  X/Twitter, Instagram, or LinkedIn. This extends the "Platform
+  integration (real vs. mock)" reasoning above rather than replacing it —
+  `postReply` on every other platform remains mocked or unimplemented for
+  the same reasons already given there.
+- **Runs via the main `docker-compose.yml`**, not a separate opt-in file.
+  Chosen for visibility: anyone running `docker compose up -d` sees a real
+  platform integration available immediately, without an extra step to
+  discover it exists. The tradeoff — a second service starting even for
+  someone only touching the mock-adapter path — was judged worth it given
+  this repo is going to a reviewer, where visibility has more value than
+  it would for day-to-day solo development.
+- **GoToSocial's own storage: bundled SQLite, not the project's Postgres.**
+  Fully decoupled from the system actually being assessed — the
+  `published_posts`/`comments`/`reply_jobs` schema above remains the only
+  thing living in the project's own Postgres instance. GoToSocial's
+  SQLite file lives in its own Docker volume.
+- **Account and access-token provisioning is a documented one-time manual
+  step, not part of `docker compose up`.** GoToSocial's OAuth flow
+  requires opening an authorize URL in a browser once and copying an
+  out-of-band code — there's no way to fully script this without either
+  browser automation or bypassing the consent step entirely (which would
+  mean trusting an unvetted method rather than GoToSocial's own documented
+  flow). `scripts/setup-gotosocial.sh` scripts everything scriptable
+  (account creation via the container's CLI, app registration, token
+  exchange) and stops to prompt for the one manual step (open this URL,
+  paste the code back). The resulting token is stored in `.env` as
+  `GTS_ACCESS_TOKEN` — same pattern as any other local secret, gitignored
+  as usual.
+- **A real post/comment needs seeding before `fetchComments` has anything
+  to return.** `scripts/setup-gotosocial.sh` also posts one seed status
+  via the newly-created account and prints the resulting id — the value to
+  use as `external_post_id` when creating a `published_posts` row for
+  manual testing against the real adapter.
+- **`GoToSocialAdapter`'s unit tests mock the HTTP layer and run in CI**,
+  same as `MockTwitterAdapter`'s. A separate, real-instance smoke test
+  exists for exercising the actual running container end-to-end (fetch,
+  reply, and — since GoToSocial supports `PUT /api/v1/statuses/:id` —
+  editing a real status to confirm the edit-detection fix actually picks
+  it up on resync), gated behind `GTS_ACCESS_TOKEN` being present and
+  excluded from CI by default, the same way the Postgres-backed
+  repository integration tests are already kept separate from the unit
+  suite (see "Testing strategy" below).
+- **Implementers: verify GoToSocial's current documented API/env vars
+  before wiring this up rather than trusting any specific version number
+  or field name here.** GoToSocial is an actively developed external
+  project; the exact required environment variables and endpoint shapes
+  should be checked against its current docs at implementation time, not
+  assumed from this document.
+
 ## Async reply pipeline
 
 - **pg-boss (Postgres-backed queue), not Redis/BullMQ or a cloud queue
