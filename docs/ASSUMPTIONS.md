@@ -214,6 +214,40 @@ rejected.
   post to the platform — exactly the duplicate-reply failure mode the key
   exists to prevent.
 
+## Running multiple backend nodes
+
+- **The design already supports horizontal scaling, without any
+  coordination code, because all state lives in Postgres rather than
+  in-process.** The HTTP layer is stateless and scales behind a load
+  balancer like any REST API. More importantly, pg-boss's queue is built
+  on `SELECT ... FOR UPDATE SKIP LOCKED`, so every node can run its own
+  `ReplyJobsWorker` calling `boss.work()` against the same `reply-jobs`
+  queue, and jobs are distributed across nodes with exactly-once delivery
+  — no leader election or sharding needed (pg-boss advertises itself as
+  "multi-master compatible," e.g. behind a Kubernetes ReplicaSet). The
+  `Idempotency-Key` handling (`ON CONFLICT DO NOTHING` plus a race-safe
+  fallback lookup — see "Async reply pipeline" below) was already built
+  for exactly this case: two nodes racing on the same key can't both
+  create a job.
+- **Connection budget, not correctness, is the actual scaling limit.**
+  Each node opens its own `pg.Pool` (for the app) and its own pg-boss
+  connection pool, so Postgres's `max_connections` caps how many nodes can
+  run concurrently before pool sizes need to shrink or a connection
+  pooler (e.g. PgBouncer) needs to be introduced. Not addressed here since
+  it isn't a problem at this system's current scale, but it's the first
+  thing that would need attention before scaling node count up
+  significantly.
+- **Two nodes can redundantly double-sync the same post.** The staleness
+  check in `CommentsService` (`last_synced_at` vs.
+  `STALENESS_THRESHOLD_MS`) has no distributed lock around it, so two
+  nodes serving concurrent requests for the same stale post could both
+  decide to fetch and both call the adapter. This is wasteful (an extra
+  adapter call) but not incorrect — `CommentsRepository.upsertMany`'s
+  `ON CONFLICT` upsert is safe against two concurrent writers, so the
+  worst case is one redundant platform fetch, not corrupted data. Not
+  worth a distributed lock (e.g. a Postgres advisory lock keyed on
+  `post_id`) at this system's current request volume.
+
 ## Testing strategy
 
 - **Repository-layer tests are integration tests, run separately from
