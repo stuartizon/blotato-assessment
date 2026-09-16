@@ -30,8 +30,8 @@ interface GoToSocialContext {
 
 /**
  * Real, self-hosted, Mastodon-API-compatible platform integration — see
- * "Real platform integration: GoToSocial" in docs/ASSUMPTIONS.md. Uses
- * Node's built-in fetch; no HTTP client dependency needed.
+ * "Platform integration" in docs/ASSUMPTIONS.md. Uses Node's built-in
+ * fetch; no HTTP client dependency needed.
  */
 export class GoToSocialAdapter implements PlatformCommentAdapter {
   readonly platform = 'gotosocial' as const;

@@ -12,7 +12,7 @@ export interface CanonicalComment {
 }
 
 export interface FetchCommentsOptions {
-  since?: Date; // used for incremental sync — only fetch comments newer than this
+  since?: Date; // used for incremental sync — fetch comments created OR edited since this time
 }
 
 export interface PlatformCommentAdapter {

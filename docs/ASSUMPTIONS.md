@@ -4,14 +4,79 @@ The requirements intentionally leave details unspecified. This document
 records the assumptions made, and — where useful — why the alternative was
 rejected.
 
-## Scope
+It's structured in two parts: **Core design decisions** first — the small
+number of high-level calls that shaped the whole system, made at the design
+stage before code was written — followed by **Implementation details and
+further assumptions**, which expands on those decisions and covers the
+lower-level choices, edge cases, and gaps found along the way.
 
-- **Backend only.** The brief references a database schema, API design,
-  and REST endpoints, with no mention of UI, components, or rendering.
-  Treated as a backend-only exercise; no frontend/UI work is in scope.
-  `npm run demo:reply` (`scripts/demo-reply-flow.ts`) demonstrates the full
-  reply-to-comment flow end to end against real GoToSocial data without one
-  — real HTTP calls to the documented REST API, not a UI standing in for it.
+## Core design decisions
+
+- **Backend only.** The brief describes a database schema, API design, and
+  REST endpoints, with no mention of UI. Treated as a backend-only
+  exercise — no frontend/UI code in this repo. (See "Scope" below for what
+  else that excludes.)
+- **Adapter pattern for platform support.** Each platform implements a
+  common `PlatformCommentAdapter` interface (fetch comments, post a
+  reply); the rest of the system — API, database, worker — only ever talks
+  to that interface, never to a specific platform's API. Adding a new
+  platform means writing one adapter, not touching existing code.
+- **NestJS.** Its module/provider/dependency-injection system maps directly
+  onto that adapter pattern — each platform adapter is registered as a
+  provider, and adapter lookup by platform is Nest's own DI container
+  rather than a hand-rolled registry.
+- **Postgres, with a JSONB column for raw platform payloads — not a
+  document store.** The system has real relational needs (uniqueness
+  constraints, foreign keys between posts/comments/replies, atomic job
+  status transitions) that a relational database with transactions serves
+  better; JSONB covers the one thing a document store would otherwise be
+  needed for.
+- **Hybrid sync model, not pure live-fetch or a full mirror.** Comments are
+  stored locally for fast reads, and refreshed from the platform when
+  stale rather than fetched live on every request or treated as a fully
+  owned copy. The platform is always the source of truth — a reply is only
+  recorded locally once the platform confirms it happened.
+- **Replies go through a queue, not a direct call to the platform.**
+  `POST /comments/:commentId/replies` enqueues a job and returns
+  immediately (`202`); a separate worker calls the platform's API and
+  updates the job's status. This keeps a slow, rate-limited, or flaky
+  platform API off the request path, and gives retries a natural place to
+  live.
+- **pg-boss (Postgres-backed) as the queue, not Redis/BullMQ or a cloud
+  queue.** Chosen to avoid introducing another piece of infrastructure at
+  this system's current scale, and to keep everything on the Postgres
+  datastore already in use. Not a permanent architectural choice — a
+  production system at real throughput would likely warrant a proper queue
+  (Kafka, SQS, Pub/Sub) instead.
+- **Webhook-based sync is out of scope**, noted as a future extension.
+  Sync is on-demand instead, triggered by reads and gated by a staleness
+  check. Not every platform supports webhooks for comment events, so even
+  with webhooks added later, this staleness-based fallback would still be
+  needed for the platforms that don't — it isn't fully replaced by adding
+  webhooks.
+- **Comment edits are in scope; deletions are not.** An edited comment is
+  picked up and updated in place on the next sync. Deletions are
+  explicitly unhandled — the schema has a `deleted_at` column, but nothing
+  populates it — since a real deletion/cascade policy needs product input
+  this brief doesn't provide, not an engineering default.
+- **GoToSocial as the platform used for a real, working integration.**
+  Actually integrating with a major platform (X, Instagram, LinkedIn)
+  requires OAuth app registration, review processes, and often paid tiers
+  just to post a reply — not obtainable within this exercise, and not
+  really what's being assessed. GoToSocial is a real, self-hosted,
+  Mastodon-API-compatible platform that runs locally via Docker, so
+  `GoToSocialAdapter` is a genuine working integration against real HTTP
+  calls, not a mock, and needs no developer credentials from anyone
+  reviewing this repo.
+
+## Implementation details and further assumptions
+
+### Scope
+
+- **Backend only.** `npm run demo:reply` (`scripts/demo-reply-flow.ts`)
+  demonstrates the full reply-to-comment flow end to end against real
+  GoToSocial data without a frontend — real HTTP calls to the documented
+  REST API, not a UI standing in for it.
 - **No `GET /posts` listing endpoint.** Post management/scheduling is
   assumed to already exist elsewhere in the product (this is, after all, a
   feature being added to an existing social media scheduling API). Only
@@ -21,13 +86,8 @@ rejected.
   presence of child comments. An explicit status field was considered but
   not implemented, to avoid solving a problem the brief didn't pose.
 
-## Sync model
+### Sync model
 
-- **Hybrid, not pure live-fetch or pure full-mirror.** Comments are stored
-  locally for fast, platform-agnostic reads, but the local store is treated
-  as a bounded-staleness cache, not a guaranteed-complete mirror.
-  `published_posts.last_synced_at` drives whether a read triggers a fresh
-  fetch from the platform before serving from the database.
 - **Staleness threshold: 15 minutes, via `STALENESS_THRESHOLD_MS`.**
   `docs/api-endpoints.md` said reads trigger a sync when
   `last_synced_at` is past "the configured staleness threshold" without
@@ -43,9 +103,9 @@ rejected.
   `published_posts` is only unique per `(platform, external_post_id)`, so
   a platform-native id alone (with no platform in the path or as a query
   param) can't uniquely identify a post. Since the wider product's
-  post-management system (out of scope here — see "No `GET /posts`
-  listing endpoint" above) already has this internal id from when the
-  post was published, callers are expected to have it on hand.
+  post-management system (out of scope here — see "Scope" above) already
+  has this internal id from when the post was published, callers are
+  expected to have it on hand.
 - **Platform is always authoritative for writes.** A reply is posted to the
   platform first; it's only persisted locally (as a `comments` row) once
   the platform confirms. The system never treats a locally-written reply as
@@ -67,7 +127,7 @@ rejected.
   real latency problem, this would need revisiting (e.g. streaming/paged
   results) — treated as a YAGNI concern for now, not a current requirement.
 
-## Threading
+### Threading
 
 - **Arbitrarily nestable**, via a self-referencing `parent_comment_id` on
   `comments`, rather than a fixed two-level (comment/reply) model. This is
@@ -76,16 +136,8 @@ rejected.
   reply chains to one level) are normalized by the relevant adapter on
   ingestion, not enforced by the schema.
 
-## Storage engine
+### Storage engine
 
-- **Postgres with a JSONB column for raw platform payloads**, not a
-  document store (e.g. MongoDB). The system has real relational integrity
-  needs — uniqueness on `(platform, external_comment_id)`, foreign keys
-  from replies to parents and posts, atomic status transitions on reply
-  jobs — that are better served by a relational database with
-  transactions. The one thing a document store is particularly good at
-  here (storing arbitrary, evolving per-platform payloads) is covered by
-  the JSONB column, without needing a second datastore.
 - **`platform` modeled as a Postgres enum, not a lookup table.** Platforms
   are added by the development team (via deploy/migration), not created by
   end users, so a fixed enum is simpler and gives a constrained type in
@@ -93,7 +145,7 @@ rejected.
   (e.g. for white-label customers), this would need to change to a
   `platforms` table.
 
-## Comment editing and deletion
+### Comment editing and deletion
 
 - **Editing is in scope.** On sync, if an existing comment's body differs
   from the freshly-fetched value, it's updated in place (upsert on
@@ -102,27 +154,17 @@ rejected.
   single-field upsert against an existing constraint, no structural
   complexity.
 - **`since` means "created or updated since," not just "created since."**
-  A code-review pass found that `CommentsService.getCommentTreeForPost`
-  always calls `fetchComments` with `since: post.lastSyncedAt` on every
-  re-sync (see "Hybrid, not pure live-fetch..." above), while
-  `MockTwitterAdapter` originally filtered `since` purely on `postedAt`.
-  Concretely: a comment is fetched once, in the sync cycle right after
-  it's posted; the next sync's `since` moves past that comment's
-  `postedAt` and it's never asked about again — so however many times it's
-  edited on the platform afterward, this system never re-fetches it to
-  notice. The upsert-on-edit SQL above was correct but practically
-  unreachable, and this tension wasn't previously called out anywhere,
-  unlike other known gaps in this document.
-  Fixed by redefining `since`'s contract (see `docs/adapter-interface.md`):
-  an adapter must return a comment if it was *created or edited* after
-  `since`, not only if it's newly created. This keeps `CommentsService`
-  and the schema untouched — the fix is entirely the adapter's
-  responsibility, consistent with the adapter interface's existing
-  "adapters own pagination/threading normalization" division of labor.
-  `MockTwitterAdapter` demonstrates this via a `MockTwitterEditTrigger`
-  sentinel (mirroring `MockTwitterFailureTrigger`), since its dataset is
-  otherwise fully deterministic/time-independent and has no other way to
-  produce an "edited" comment for a test to observe.
+  `CommentsService.getCommentTreeForPost` re-syncs using `since:
+  post.lastSyncedAt` (see "Sync model" above), so a filter on creation time
+  alone would mean a comment is only ever checked once, in the sync right
+  after it's first posted — any edit made after that point would never be
+  picked up. An adapter must therefore return a comment if it was *created
+  or edited* after `since`, not only if it's newly created (see
+  `docs/adapter-interface.md`). `MockTwitterAdapter` demonstrates this via
+  a `MockTwitterEditTrigger` sentinel (mirroring
+  `MockTwitterFailureTrigger`), since its dataset is otherwise fully
+  deterministic/time-independent and has no other way to produce an
+  "edited" comment for a test to observe.
 - **Real (non-mock) adapters may need more than a `since` filter to fully
   honor the contract above.** It assumes a platform's comment-list API can
   filter or sort by last-modified time. Not every platform's API
@@ -146,57 +188,43 @@ rejected.
   reason — noted here rather than built, since deletion handling itself is
   out of scope.
 
-## Platform integration (real vs. mock)
+### Platform integration
 
-- **Implemented against a mock adapter, not real platform APIs.** This was
-  a deliberate choice, not an oversight, for two reasons:
-  - **Practical availability.** Posting a reply is gated behind paid
-    tiers or app-review processes on every major platform considered here
-    (e.g. paid API access for write operations on X/Twitter; Meta App
-    Review for comment permissions on Instagram; partner-gated comment
-    endpoints on LinkedIn). None of these are obtainable within a
-    take-home timeframe, so a "real" integration for the write path
-    (`postReply`) isn't actually available regardless of effort spent.
-  - **Signal.** The brief frames this as an exercise in reasoning and
-    design judgment ("the requirements intentionally leave some details
-    unspecified," "evaluating your reasoning and engineering decisions"),
-    not working OAuth/app-review flows. A mock adapter that faithfully
-    simulates a real platform's shape (pagination style, auth header,
-    error responses) exercises the `PlatformCommentAdapter` abstraction
-    just as thoroughly as a real integration would, and is actually more
-    reviewable — a cloned repo works out of the box, with no reviewer
-    needing to register their own developer app/credentials to run it.
-  - A real, unauthenticated **read-only** endpoint (where a platform
-    exposes public post data without auth) would be a reasonable future
-    enhancement to the `fetchComments` path specifically, but `postReply`
-    would remain mocked regardless, since the write path is what's gated
-    everywhere. Not pursued here to keep effort focused on the core
-    design.
-- **Simulated failures are triggered via sentinel IDs, not randomness or
-  configuration.** `MockTwitterAdapter` returns deterministic seeded data
-  for normal calls, but a small set of exported sentinel values
-  (`MockTwitterFailureTrigger`, e.g. passed as `externalPostId` to
-  `fetchComments` or `externalParentCommentId` to `postReply`) make it
-  throw a specific, correctly-classified `PlatformApiError` instead. This
-  keeps error-path tests (and manual exercising of the worker's
-  retry/give-up logic in issue 6) deterministic and inspectable, without
-  needing a config flag or random fault injection that would make test
-  failures flaky or hard to reproduce. Other platforms' adapters are free
-  to use a different mechanism if one better fits their simulated shape —
-  this isn't part of the `PlatformCommentAdapter` contract.
-
-## Real platform integration: GoToSocial
-
-- **Why GoToSocial.** The mock adapter satisfies the brief and is what the
-  core design was validated against, but a real, self-hosted, Mastodon-API-
-  compatible instance lets the `PlatformCommentAdapter` abstraction (and
-  the edit-detection fix — see "Sync model" above) be demonstrated against
-  genuine HTTP calls and genuine platform behavior, not just simulated
-  data, without the paid-tier/app-review blockers that rule out
-  X/Twitter, Instagram, or LinkedIn. This extends the "Platform
-  integration (real vs. mock)" reasoning above rather than replacing it —
-  `postReply` on every other platform remains mocked or unimplemented for
-  the same reasons already given there.
+- **GoToSocial is the platform this repo integrates with for real; the
+  major platforms are not.** Actually posting a reply requires an OAuth
+  app plus, on every major platform considered here, a paid API tier or an
+  app-review process just to get write access (e.g. paid API access for
+  write operations on X/Twitter; Meta App Review for comment permissions
+  on Instagram; partner-gated comment endpoints on LinkedIn) — none of
+  which is obtainable within this exercise, so a genuine write-capable
+  integration with any of them isn't actually available regardless of
+  effort spent. GoToSocial is a real, self-hosted, Mastodon-API-compatible
+  platform with none of that gating, and runs locally via Docker, so
+  `GoToSocialAdapter` exercises the `PlatformCommentAdapter` abstraction
+  (including the edit-detection contract — see "Comment editing and
+  deletion" above) against genuine HTTP calls and genuine platform
+  behavior — a real integration, not a mock — without a reviewer needing
+  to register their own developer credentials to run this repo. Instagram,
+  LinkedIn, and TikTok are stubbed with a `NotImplementedAdapter` (see
+  `docs/adapter-interface.md`).
+- **A separate mock adapter, `MockTwitterAdapter`, complements it for
+  fast, fully deterministic testing.** With no network calls or running
+  containers required, it's what most of the adapter-interface unit tests
+  run against — including simulated failures and edits, triggered via
+  exported sentinel values (`MockTwitterFailureTrigger`,
+  `MockTwitterEditTrigger`) rather than randomness or configuration, so
+  error-path and edit-detection tests stay deterministic and reproducible.
+  `GoToSocialAdapter`'s own unit tests follow the same mocked-HTTP
+  approach for the same reason; a separate real-instance smoke test,
+  gated behind `GTS_ACCESS_TOKEN` and excluded from CI by default,
+  exercises the actual running container end-to-end (see "Testing
+  strategy" below).
+- A real, unauthenticated **read-only** endpoint (where a platform exposes
+  public post data without auth) would be a reasonable future enhancement
+  to the `fetchComments` path specifically, but `postReply` would remain
+  gated regardless, since the write path is what's gated everywhere on
+  every major platform. Not pursued here to keep effort focused on the
+  core design.
 - **Runs via the main `docker-compose.yml`**, not a separate opt-in file.
   Chosen for visibility: anyone running `docker compose up -d` sees a real
   platform integration available immediately, without an extra step to
@@ -210,35 +238,16 @@ rejected.
   thing living in the project's own Postgres instance. GoToSocial's
   SQLite file lives in its own Docker volume.
 - **`docker compose up -d` alone brings up GoToSocial pre-seeded with
-  sample posts and comments, from two different accounts** — no manual
-  step needed to have real content to explore, and the content itself
-  models this project's actual premise: `blotato_seed` (the "business")
-  posts, `blotato_commenter` (someone else) comments on those posts, and
-  the app — a third, separate account provisioned via
-  `scripts/setup-gotosocial.sh` — replies automatically. Using two
-  accounts instead of one self-replying account matters for the demo (see
-  `npm run demo:reply` below): replying to your own comments isn't what
-  this system is for. Two one-shot services handle the seeding:
-  `gotosocial-account-init` (same image + storage volume as `gotosocial`,
-  runs `admin account create` for both accounts, tolerating "already
-  exists" on repeat runs) and `gotosocial-seed` (a small `curlimages/curl`
-  container that signs in as each account in turn and posts through
-  GoToSocial's real HTTP API — one registered OAuth app, reused across
-  both sign-ins, since apps and user accounts are independent). This
-  corrects an earlier version of this document, which assumed GoToSocial's
-  OAuth flow "requires opening an authorize URL in a browser" and "there's
-  no way to fully script this" — in fact the whole flow (sign in,
-  authorize, exchange) is just a sequence of HTTP requests a browser
-  happens to make; scripting it with `curl` works fine and needs no
-  browser automation or bypassed consent step, it just hadn't been tried.
-  `gotosocial-seed` is idempotent by checking the poster account's own
-  `statuses_count` via the API (not a marker file — `curlimages/curl`'s
-  default user doesn't own the `gotosocial-data` volume, which is fine
-  since checking real state is more robust than a side-channel marker
-  anyway — and the poster only ever posts top-level statuses, never
-  comments, so its own count is an accurate signal regardless of what the
-  commenter account has done), so repeat `docker compose up` runs don't
-  pile up duplicate posts.
+  sample posts and comments, from two separate accounts** — no manual step
+  needed to have real content to explore. `blotato_seed` (the "business")
+  posts, `blotato_commenter` (someone else) comments, and a third account
+  (provisioned via `scripts/setup-gotosocial.sh`) replies — mirroring this
+  project's actual premise, since replying to your own comments isn't what
+  this system is for. Two one-shot Docker services handle it:
+  `gotosocial-account-init` creates both accounts, and `gotosocial-seed`
+  signs in as each in turn and posts through GoToSocial's real HTTP API.
+  Both are idempotent (checked against real API state, not a marker file),
+  so repeat `docker compose up` runs don't create duplicates.
 - **`gotosocial-seed` threads its session cookie through manually instead
   of using curl's cookie jar.** GoToSocial scopes its session cookie to
   `GTS_HOST` ("localhost", so the human-facing flows below work from the
@@ -249,51 +258,15 @@ rejected.
   `GTS_HOST`.
 - **Provisioning *our own app's* `GTS_ACCESS_TOKEN` stays a separate,
   deliberately manual one-time step**, distinct from the automatic
-  content-seeding above — `scripts/setup-gotosocial.sh` still creates its
-  own account and prompts a human to open the authorize URL and paste back
-  the code. Now that the OAuth flow is known to be fully scriptable (see
-  above), this is a choice, not a technical constraint: a human
-  consciously provisioning the credential our own backend will actually
-  authenticate with is worth keeping deliberate, even though
-  `gotosocial-seed` proves the same flow could be automated end-to-end.
-  `scripts/setup-gotosocial.sh` also posts one seed status via its own
-  account and prints the resulting id — the value to use as
-  `external_post_id` when creating a `published_posts` row for manual
-  testing against the real adapter (the automatically-seeded posts above
-  work equally well for this — either account's post ids are usable).
-- **`GoToSocialAdapter`'s unit tests mock the HTTP layer and run in CI**,
-  same as `MockTwitterAdapter`'s. A separate, real-instance smoke test
-  exists for exercising the actual running container end-to-end (fetch,
-  reply, and — since GoToSocial supports `PUT /api/v1/statuses/:id` —
-  editing a real status to confirm the edit-detection fix actually picks
-  it up on resync), gated behind `GTS_ACCESS_TOKEN` being present and
-  excluded from CI by default, the same way the Postgres-backed
-  repository integration tests are already kept separate from the unit
-  suite (see "Testing strategy" below).
-- **Implementers: verify GoToSocial's current documented API/env vars
-  before wiring this up rather than trusting any specific version number
-  or field name here.** GoToSocial is an actively developed external
-  project; the exact required environment variables and endpoint shapes
-  should be checked against its current docs at implementation time, not
-  assumed from this document.
-- **`GoToSocialAdapter.postReply` explicitly sends `visibility: 'public'`.**
-  Left unset, GoToSocial's `POST /api/v1/statuses` defaults to `unlisted`,
-  which reads as hidden/not-public in the web UI's thread view — the whole
-  point of replying on the business's behalf is for that reply to be as
-  visible as the comment it's answering. Found via `npm run demo:reply`
-  producing replies the web UI showed as hidden; confirmed against a live
-  instance and fixed test-first (see gotosocial.adapter.spec.ts).
+  content-seeding above — `scripts/setup-gotosocial.sh` creates its own
+  account and prompts a human to open the authorize URL and paste back the
+  code, even though the flow is fully scriptable (as `gotosocial-seed`
+  proves). The point is a human consciously provisioning the credential
+  our own backend authenticates with, not a technical limitation. The
+  script also posts one seed status and prints its id, usable as
+  `external_post_id` for manually testing against the real adapter.
+### Async reply pipeline
 
-## Async reply pipeline
-
-- **pg-boss (Postgres-backed queue), not Redis/BullMQ or a cloud queue
-  (SQS, Pub/Sub).** Chosen to avoid introducing additional infrastructure
-  for what is, at this stage, a modest-throughput background task — it
-  keeps the whole system on a single datastore and easy to run locally. In
-  a production system at real scale, a managed queue would likely be a
-  better choice for throughput, decoupling, and operational tooling;
-  pg-boss is judged right-sized for this system's current scale, not
-  presented as a permanent architectural ceiling.
 - **Retry/backoff policy lives in the queue, not the database.** The
   `reply_jobs` table tracks current status, not attempt counts or backoff
   timing — that's left to pg-boss's own retry mechanics, to avoid
@@ -310,108 +283,42 @@ rejected.
   into a common `PlatformApiError` shape (with a `retryable` flag and an
   error `kind`), and the worker acts on that classification. See
   `docs/error-shape.md`.
-- **Pinned to `pg-boss@^10`, not the latest major (`12.x`).** From `pg-boss`
-  v12 onward the package ships ESM-only (`"type": "module"`, no CommonJS
-  entry point), while this project compiles to CommonJS
-  (`tsconfig.json`'s `module: "commonjs"`, no `esModuleInterop`) and CI runs
-  on Node 20. `pg-boss@11` requires Node ≥22 (newer than CI's Node 20);
-  `pg-boss@10` supports Node ≥20 and is still CommonJS, so it's the newest
-  version that doesn't force either a Node bump or a project-wide ESM
-  migration — neither of which this feature warrants.
-- **Retry policy: `retryLimit: 5`, `retryDelay: 5` (seconds), `retryBackoff:
-  true`.** Not specified anywhere in `docs/` beyond "retried per pg-boss's
-  policy," so a concrete policy was picked and set on the queue itself (via
-  `createQueue`/`updateQueue` in `ReplyJobsQueueService`) rather than left
-  at pg-boss's defaults — five attempts with exponential backoff is a
-  reasonable balance between riding out a transient blip (a rate limit, a
-  5xx) and not hammering a platform that's genuinely down. `retryAfterMs`
-  on a `rate_limited` `PlatformApiError` (a hint from the platform's own
-  rate-limit headers) is not currently used to size an individual retry's
-  delay — the worker just rethrows and lets the queue's uniform backoff
-  handle it — noted here as a gap rather than silently ignored.
-- **`createQueue` in pg-boss is create-only — it no-ops on a queue that
-  already exists, silently ignoring any options passed.** `ReplyJobsQueueService`
-  calls `updateQueue` right after `createQueue` for exactly this reason:
-  without it, a later change to the retry policy in code would never take
-  effect on a queue created by an earlier deploy. Confirmed by inspecting
-  `pgboss.queue` directly against a locally running instance — this wasn't
-  documented in pg-boss's own README.
-- **The `reply_jobs` unique index on `idempotency_key` is the source of
-  truth for deduplication, not an application-level check-then-insert.**
-  The create-reply endpoint does check for an existing job by key before
-  inserting (to skip unnecessary work on the common repeat-request path),
-  but the actual insert uses `INSERT ... ON CONFLICT (idempotency_key) DO
-  NOTHING`, falling back to a lookup if the insert is skipped. A plain
-  check-then-insert would have a race window: two concurrent requests with
-  the same key could both pass the check and both insert, each going on to
-  post to the platform — exactly the duplicate-reply failure mode the key
-  exists to prevent.
+- **Pinned to `pg-boss@^10`, not the latest major (`12.x`).** From v12
+  onward, pg-boss ships ESM-only, which this CommonJS project (Node 20 in
+  CI) can't consume without either an ESM migration or a Node bump to 22
+  (required by v11) — neither of which this feature warrants. v10 is the
+  newest version that's still CommonJS and supports Node 20.
+- **Retry policy: `retryLimit: 5`, `retryDelay: 5` (seconds),
+  `retryBackoff: true`**, set explicitly in `ReplyJobsQueueService` rather
+  than left at pg-boss's defaults — five attempts with exponential backoff
+  balances riding out a transient blip against hammering a platform that's
+  genuinely down. Known gap: a `rate_limited` error's `retryAfterMs` hint
+  isn't used to size the retry delay — the worker just rethrows and lets
+  the queue's uniform backoff handle it.
+### Running multiple backend nodes
 
-## Running multiple backend nodes
+- **The design already supports horizontal scaling with no coordination
+  code, since all state lives in Postgres rather than in-process.** The
+  HTTP layer is stateless, and pg-boss distributes queue jobs across nodes
+  safely on its own (`SELECT ... FOR UPDATE SKIP LOCKED`); the
+  `Idempotency-Key` handling already prevents two nodes from racing to
+  create the same job, and worst case, two nodes double-syncing the same
+  post just means one redundant platform fetch, not corrupted data. The
+  real limit is connection budget, not correctness: each node opens its
+  own Postgres connection pool, so `max_connections` caps how many nodes
+  can run concurrently — the first thing that would need attention (e.g.
+  a pooler like PgBouncer) if node count grew significantly. Not addressed
+  here since it isn't a problem at this system's current scale.
 
-- **The design already supports horizontal scaling, without any
-  coordination code, because all state lives in Postgres rather than
-  in-process.** The HTTP layer is stateless and scales behind a load
-  balancer like any REST API. More importantly, pg-boss's queue is built
-  on `SELECT ... FOR UPDATE SKIP LOCKED`, so every node can run its own
-  `ReplyJobsWorker` calling `boss.work()` against the same `reply-jobs`
-  queue, and jobs are distributed across nodes with exactly-once delivery
-  — no leader election or sharding needed (pg-boss advertises itself as
-  "multi-master compatible," e.g. behind a Kubernetes ReplicaSet). The
-  `Idempotency-Key` handling (`ON CONFLICT DO NOTHING` plus a race-safe
-  fallback lookup — see "Async reply pipeline" below) was already built
-  for exactly this case: two nodes racing on the same key can't both
-  create a job.
-- **Connection budget, not correctness, is the actual scaling limit.**
-  Each node opens its own `pg.Pool` (for the app) and its own pg-boss
-  connection pool, so Postgres's `max_connections` caps how many nodes can
-  run concurrently before pool sizes need to shrink or a connection
-  pooler (e.g. PgBouncer) needs to be introduced. Not addressed here since
-  it isn't a problem at this system's current scale, but it's the first
-  thing that would need attention before scaling node count up
-  significantly.
-- **Two nodes can redundantly double-sync the same post.** The staleness
-  check in `CommentsService` (`last_synced_at` vs.
-  `STALENESS_THRESHOLD_MS`) has no distributed lock around it, so two
-  nodes serving concurrent requests for the same stale post could both
-  decide to fetch and both call the adapter. This is wasteful (an extra
-  adapter call) but not incorrect — `CommentsRepository.upsertMany`'s
-  `ON CONFLICT` upsert is safe against two concurrent writers, so the
-  worst case is one redundant platform fetch, not corrupted data. Not
-  worth a distributed lock (e.g. a Postgres advisory lock keyed on
-  `post_id`) at this system's current request volume.
+### Testing strategy
 
-## Testing strategy
-
-- **Repository-layer tests are integration tests, run separately from
-  unit tests.** They exercise a real Postgres instance (via
-  `docker-compose`), not a mocked driver — given "plain node-postgres, no
-  ORM" as the data-access approach, the value being tested (the upsert's
-  `ON CONFLICT` edit-detection, the recursive-CTE tree fetch) lives in the
-  SQL itself, and mocking the `pg` client would only prove the mock was
-  called correctly, not that the query does the right thing. They're
-  named `*.integration.spec.ts` and run via a separate Jest config
-  (`jest.integration.config.js`, `npm run test:integration`), so `npm run
-  test:unit` (and the default `jest`/`test:watch`) stays fast and runnable
-  without Docker at all. `npm test` (used by the `pre-push` hook and CI)
-  runs both.
-- **The integration config pins `maxWorkers: 1`.** Those specs share one
-  database and truncate their tables in `beforeEach`; Jest's default of
-  running test files in separate parallel worker processes let two
-  suites' truncate/insert sequences interleave against the same tables,
-  causing intermittent unique-constraint failures. Serializing just this
-  config avoids the race without slowing down the (much larger, in
-  future) unit suite, and without adding per-suite locking or a separate
-  database per worker.
-
-## Framework choice
-
-- **NestJS, not a hand-rolled Express/Fastify setup.** NestJS's
-  module/provider/dependency-injection system maps naturally onto "support
-  more platforms without touching core logic" — each platform adapter is
-  registered as a provider (e.g. via a custom injection token keyed by
-  platform), and the registry becomes Nest's own DI container rather than
-  a bespoke class. This is a more "production-shaped" way to express the
-  same registry pattern, at the cost of some framework boilerplate/DI
-  conventions a reviewer needs to be familiar with to follow it as easily
-  as a hand-rolled registry.
+- **Two tiers: unit tests and integration tests, run separately.** Unit
+  tests (`npm run test:unit`, the default `jest`/`test:watch`) cover most
+  logic — adapters, services, error classification — fast and in-memory,
+  no Docker needed. Repository-layer tests are integration tests instead,
+  run via a separate Jest config (`jest.integration.config.js`, `npm run
+  test:integration`) against a real Postgres instance (`docker-compose`),
+  not a mocked driver — given "plain node-postgres, no ORM," the thing
+  being tested (upsert-on-conflict behavior, the recursive-CTE tree fetch)
+  lives in the SQL itself, which a mocked `pg` client can't verify. `npm
+  test` (used by the `pre-push` hook and CI) runs both.

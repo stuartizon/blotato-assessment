@@ -53,7 +53,7 @@ interface MockTweetPayload {
  * A mock "twitter"-like adapter. Simulates the shape of a real platform
  * integration (pagination-free bulk fetch, a created-at timestamp, a
  * nested-reply thread, rate limiting) without calling any real API — see
- * docs/ASSUMPTIONS.md, "Platform integration (real vs. mock)".
+ * docs/ASSUMPTIONS.md, "Platform integration".
  *
  * Deterministic per externalPostId (seeded, not random) so tests and
  * staleness-driven re-fetches behave predictably.

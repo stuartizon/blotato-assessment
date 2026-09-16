@@ -2,8 +2,8 @@ import { GoToSocialAdapter } from './gotosocial.adapter';
 
 /**
  * Exercises GoToSocialAdapter against a real, running GoToSocial instance —
- * see "Real platform integration: GoToSocial" in docs/ASSUMPTIONS.md. Run
- * via `npm run test:live:gotosocial`, never as part of `npm test` or CI
+ * see "Platform integration" in docs/ASSUMPTIONS.md. Run via
+ * `npm run test:live:gotosocial`, never as part of `npm test` or CI
  * (see jest.config.js / jest.live.config.js).
  *
  * Requires `docker compose up -d` and a provisioned GTS_ACCESS_TOKEN (see
