@@ -1,5 +1,15 @@
 x-gotosocial-env: &gotosocial-env
-  GTS_HOST: localhost
+  # Includes the port because we expose GoToSocial directly on :8080 with
+  # no reverse proxy in front to normalize it back to :80 — GoToSocial
+  # builds every absolute URL (avatars, profile links, etc.) from GTS_HOST
+  # verbatim, so a bare "localhost" here produces asset URLs on port 80,
+  # which nothing is listening on. Confirmed against a live instance that
+  # this doesn't affect cookie-based sign-in (GoToSocial only sets a
+  # cookie Domain attribute when the host has no port; with a port, it
+  # falls back to an implicit host-only cookie, which every OAuth flow in
+  # this repo — scripts/setup-gotosocial.sh, scripts/seed-gotosocial-data.sh
+  # — already tolerates).
+  GTS_HOST: localhost:8080
   GTS_PROTOCOL: http
   GTS_DB_TYPE: sqlite
   GTS_DB_ADDRESS: /gotosocial/storage/sqlite.db
