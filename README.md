@@ -48,9 +48,32 @@ reach a running server. It's a real, self-hosted, Mastodon-API-compatible
 platform used to exercise `GoToSocialAdapter` against genuine HTTP calls
 rather than mocks — see "Real platform integration: GoToSocial" in
 `docs/ASSUMPTIONS.md`. Its data (SQLite) lives in its own `gotosocial-data`
-Docker volume, fully separate from the project's own Postgres. Provisioning
-a test account and access token is a separate one-time step, documented
-where that tooling lands (see the linked assumptions section).
+Docker volume, fully separate from the project's own Postgres.
+
+### Testing against a real platform (optional)
+
+`scripts/setup-gotosocial.sh` provisions a test account and access token
+against the local GoToSocial instance — a one-time step, separate from the
+regular setup above:
+
+```bash
+docker compose up -d              # make sure GoToSocial is running first
+scripts/setup-gotosocial.sh
+```
+
+It creates a test account, registers an OAuth app, and then pauses for the
+one step that can't be scripted: it prints an authorize URL and that
+account's credentials, you open the URL in a browser, sign in, click
+"Allow", and paste the resulting code back into the prompt. The script then
+exchanges that code for an access token and posts a seed status. It prints:
+
+- an access token to add to `.env` as `GTS_ACCESS_TOKEN`
+- the seed status's id, to use as `external_post_id` when creating a test
+  `published_posts` row for manual testing against the real adapter
+
+The script is safe to re-run — it reuses the account (and its saved
+credentials, in the gitignored `.gotosocial-setup-credentials`) if one
+already exists, rather than failing.
 
 Other scripts: `npm test`, `npm run lint`, `npm run format`, `npm run build`.
 Migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate)
